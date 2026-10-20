@@ -11,10 +11,11 @@ import type {
   AuthStore,
   CheckpointRecord,
   CreateSessionInput,
+  CreateUserInput,
   SessionRecord,
   UserWithCredentials,
 } from '../../src/auth/auth-store.js';
-import type { UserRole } from '../../src/auth/types.js';
+import type { AuthUser, Company, UserRole } from '../../src/auth/types.js';
 
 interface StoredSession {
   id: string;
@@ -47,6 +48,7 @@ export interface NewUserInput {
  * HTTP requests.
  */
 export class InMemoryAuthStore implements AuthStore {
+  readonly companies = new Map<string, Company>();
   readonly users = new Map<string, UserWithCredentials>();
   readonly sessions = new Map<string, StoredSession>();
   readonly auditEvents: AuditLogEntry[] = [];
@@ -55,6 +57,55 @@ export class InMemoryAuthStore implements AuthStore {
   private userSequence = 0;
   private auditSequence = 0;
   private checkpointSequence = 0;
+
+  async createCompany(input: { id: string; name: string; domain?: string | null; createdAt: Date }): Promise<Company> {
+    const company: Company = {
+      id: input.id,
+      name: input.name,
+      domain: input.domain ?? null,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+    };
+    this.companies.set(company.id, company);
+    return company;
+  }
+
+  async findCompanyById(id: string): Promise<Company | null> {
+    const company = this.companies.get(id);
+    return company ? { ...company } : null;
+  }
+
+  async createUser(input: CreateUserInput): Promise<UserWithCredentials> {
+    const user: UserWithCredentials = {
+      id: input.id,
+      email: input.email.trim().toLowerCase(),
+      displayName: input.displayName ?? null,
+      companyId: input.companyId ?? null,
+      companyName: input.companyId ? this.companies.get(input.companyId)?.name ?? null : null,
+      role: input.role,
+      isActive: true,
+      passwordHash: input.passwordHash,
+      failedLoginCount: 0,
+      lockedUntil: null,
+      passwordChangedAt: null,
+    };
+    this.users.set(user.id, user);
+    return user;
+  }
+
+  async listCompanyUsers(companyId: string): Promise<AuthUser[]> {
+    return [...this.users.values()]
+      .filter((u) => u.companyId === companyId)
+      .map((u) => ({
+        id: u.id,
+        email: u.email,
+        displayName: u.displayName,
+        companyId: u.companyId,
+        companyName: u.companyName,
+        role: u.role,
+        isActive: u.isActive,
+      }));
+  }
 
   addUser(input: NewUserInput): UserWithCredentials {
     this.userSequence += 1;
@@ -229,6 +280,7 @@ export class InMemoryAuthStore implements AuthStore {
     const entry: AuditLogEntry = {
       id: String(this.auditSequence),
       userId: event.userId,
+      companyId: event.companyId ?? null,
       targetUserId: event.targetUserId ?? null,
       action: event.action,
       outcome: event.outcome,

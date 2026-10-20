@@ -116,7 +116,10 @@ export function AppShell(): JSX.Element {
               </div>
               <div className="sidebar-user-info">
                 <strong>{user.displayName ?? user.email}</strong>
-                <span className="muted small">{roleLabel(user.role)}</span>
+                <span className="muted small">
+                  {roleLabel(user.role)}
+                  {user.companyName ? ` • ${user.companyName}` : ''}
+                </span>
               </div>
               <button
                 className="icon-button"
@@ -152,7 +155,9 @@ export function AppShell(): JSX.Element {
             <IconMenu />
           </button>
           <div className="topbar-heading">
-            <span className="topbar-eyebrow">TrustVault workspace</span>
+            <span className="topbar-eyebrow">
+              {user?.companyName ? `${user.companyName} workspace` : 'TrustVault workspace'}
+            </span>
             <h1>{pageTitle(location.pathname)}</h1>
           </div>
           <div className="topbar-account">

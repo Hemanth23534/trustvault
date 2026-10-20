@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type JSX } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { BrandMark } from '../components/BrandMark';
 import { IconActivity, IconLock, IconShare, IconShield } from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
@@ -152,6 +152,13 @@ export function LoginPage(): JSX.Element {
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+
+          <p className="login-hint" style={{ marginTop: '1.25rem', textAlign: 'center' }}>
+            New company or organization?{' '}
+            <Link to="/register" style={{ fontWeight: 600, color: 'var(--color-brand)' }}>
+              Register company workspace
+            </Link>
+          </p>
 
           <p className="login-hint">
             Demo accounts are created with <code className="mono">npm run seed</code> in the server

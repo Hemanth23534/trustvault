@@ -53,6 +53,8 @@ CREATE USER IF NOT EXISTS 'trustvault'@'localhost'
 
 -- Operational tables: full DML
 GRANT SELECT, INSERT, UPDATE, DELETE
+  ON `trustvault`.`companies`              TO 'trustvault'@'localhost';
+GRANT SELECT, INSERT, UPDATE, DELETE
   ON `trustvault`.`users`                  TO 'trustvault'@'localhost';
 GRANT SELECT, INSERT, UPDATE, DELETE
   ON `trustvault`.`sessions`               TO 'trustvault'@'localhost';

@@ -27,12 +27,14 @@ export interface DocumentOwner {
   id: string;
   email: string;
   displayName: string | null;
+  companyId?: string | null;
 }
 
 /** Public document shape. Deliberately excludes `storage_key`. */
 export interface DocumentRecord {
   id: string;
   owner: DocumentOwner;
+  companyId?: string | null;
   title: string;
   description: string | null;
   fileName: string;

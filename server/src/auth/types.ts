@@ -7,6 +7,14 @@ export function isUserRole(value: unknown): value is UserRole {
   return typeof value === 'string' && (USER_ROLES as readonly string[]).includes(value);
 }
 
+export interface Company {
+  id: string;
+  name: string;
+  domain?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 /** The only user shape that is ever returned by an API response. */
 export interface AuthUser {
   id: string;
@@ -14,6 +22,8 @@ export interface AuthUser {
   displayName: string | null;
   role: UserRole;
   isActive: boolean;
+  companyId?: string | null;
+  companyName?: string | null;
 }
 
 export interface AuthenticatedSession {

@@ -4,7 +4,7 @@ import {
   computeEntryHash,
   GENESIS_HASH,
 } from './audit-crypto.js';
-import type { AuthUser, UserRole } from './types.js';
+import type { AuthUser, Company, UserRole } from './types.js';
 
 export interface UserWithCredentials extends AuthUser {
   passwordHash: string;
@@ -39,8 +39,19 @@ export interface CreateSessionInput {
   expiresAt: Date;
 }
 
+export interface CreateUserInput {
+  id: string;
+  email: string;
+  displayName: string | null;
+  role: UserRole;
+  passwordHash: string;
+  companyId?: string | null;
+  createdAt: Date;
+}
+
 export interface AuditEventInput {
   userId: string | null;
+  companyId?: string | null;
   targetUserId?: string | null;
   action: string;
   outcome: 'success' | 'failure' | 'denied';
@@ -58,6 +69,7 @@ export interface AuditEventInput {
 export interface AuditLogEntry {
   id: string;
   userId: string | null;
+  companyId: string | null;
   targetUserId: string | null;
   action: string;
   outcome: 'success' | 'failure' | 'denied';
@@ -105,6 +117,10 @@ export interface AuditVerificationResult {
  * Persistence boundary for authentication and audit log ledger.
  */
 export interface AuthStore {
+  createCompany(input: { id: string; name: string; domain?: string | null; createdAt: Date }): Promise<Company>;
+  findCompanyById(id: string): Promise<Company | null>;
+  createUser(input: CreateUserInput): Promise<UserWithCredentials>;
+  listCompanyUsers(companyId: string): Promise<AuthUser[]>;
   findUserByEmail(email: string): Promise<UserWithCredentials | null>;
   findUserById(id: string): Promise<UserWithCredentials | null>;
   setUserActive(userId: string, isActive: boolean): Promise<boolean>;
@@ -135,6 +151,8 @@ interface UserRow extends RowDataPacket {
   id: string;
   email: string;
   display_name: string | null;
+  company_id: string | null;
+  company_name?: string | null;
   role: UserRole;
   is_active: number;
   password_hash: string;
@@ -154,6 +172,8 @@ interface SessionRow extends RowDataPacket {
   user_id: string;
   email: string;
   display_name: string | null;
+  company_id: string | null;
+  company_name: string | null;
   role: UserRole;
   is_active: number;
   password_changed_at: Date | null;
@@ -162,6 +182,7 @@ interface SessionRow extends RowDataPacket {
 interface AuditRow extends RowDataPacket {
   id: string | number;
   user_id: string | null;
+  company_id?: string | null;
   target_user_id?: string | null;
   action: string;
   outcome: 'success' | 'failure' | 'denied';
@@ -222,6 +243,8 @@ function toUser(row: UserRow): UserWithCredentials {
     id: row.id,
     email: row.email,
     displayName: row.display_name,
+    companyId: row.company_id ?? null,
+    companyName: row.company_name ?? null,
     role: row.role,
     isActive: row.is_active === 1,
     passwordHash: row.password_hash,
@@ -235,6 +258,7 @@ function toAuditEntry(row: AuditRow): AuditLogEntry {
   return {
     id: String(row.id),
     userId: row.user_id,
+    companyId: row.company_id ?? null,
     targetUserId: row.target_user_id ?? null,
     action: row.action,
     outcome: row.outcome,
@@ -253,12 +277,94 @@ function toAuditEntry(row: AuditRow): AuditLogEntry {
 export class MySqlAuthStore implements AuthStore {
   constructor(private readonly pool: Pool) {}
 
+  async createCompany(input: { id: string; name: string; domain?: string | null; createdAt: Date }): Promise<Company> {
+    await this.pool.execute(
+      `INSERT INTO companies (id, name, domain, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      [input.id, input.name, input.domain ?? null, input.createdAt, input.createdAt],
+    );
+    return {
+      id: input.id,
+      name: input.name,
+      domain: input.domain ?? null,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+    };
+  }
+
+  async findCompanyById(id: string): Promise<Company | null> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT id, name, domain, created_at, updated_at FROM companies WHERE id = ? LIMIT 1`,
+      [id],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      domain: row.domain ?? null,
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
+    };
+  }
+
+  async createUser(input: CreateUserInput): Promise<UserWithCredentials> {
+    await this.pool.execute(
+      `INSERT INTO users (id, email, password_hash, display_name, company_id, role, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      [
+        input.id,
+        input.email,
+        input.passwordHash,
+        input.displayName,
+        input.companyId ?? null,
+        input.role,
+        input.createdAt,
+        input.createdAt,
+      ],
+    );
+    return {
+      id: input.id,
+      email: input.email,
+      displayName: input.displayName,
+      companyId: input.companyId ?? null,
+      companyName: null,
+      role: input.role,
+      isActive: true,
+      passwordHash: input.passwordHash,
+      failedLoginCount: 0,
+      lockedUntil: null,
+      passwordChangedAt: null,
+    };
+  }
+
+  async listCompanyUsers(companyId: string): Promise<AuthUser[]> {
+    const [rows] = await this.pool.execute<UserRow[]>(
+      `SELECT u.id, u.email, u.display_name, u.company_id, c.name AS company_name, u.role, u.is_active,
+              u.password_hash, u.failed_login_count, u.locked_until, u.password_changed_at
+         FROM users u
+         LEFT JOIN companies c ON c.id = u.company_id
+        WHERE u.company_id = ?
+        ORDER BY u.created_at ASC`,
+      [companyId],
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      displayName: r.display_name,
+      companyId: r.company_id,
+      companyName: r.company_name,
+      role: r.role,
+      isActive: r.is_active === 1,
+    }));
+  }
+
   async findUserByEmail(email: string): Promise<UserWithCredentials | null> {
     const [rows] = await this.pool.execute<UserRow[]>(
-      `SELECT id, email, display_name, role, is_active, password_hash,
-              failed_login_count, locked_until, password_changed_at
-         FROM users
-        WHERE email = ?
+      `SELECT u.id, u.email, u.display_name, u.company_id, c.name AS company_name, u.role, u.is_active,
+              u.password_hash, u.failed_login_count, u.locked_until, u.password_changed_at
+         FROM users u
+         LEFT JOIN companies c ON c.id = u.company_id
+        WHERE u.email = ?
         LIMIT 1`,
       [email],
     );
@@ -268,10 +374,11 @@ export class MySqlAuthStore implements AuthStore {
 
   async findUserById(id: string): Promise<UserWithCredentials | null> {
     const [rows] = await this.pool.execute<UserRow[]>(
-      `SELECT id, email, display_name, role, is_active, password_hash,
-              failed_login_count, locked_until, password_changed_at
-         FROM users
-        WHERE id = ?
+      `SELECT u.id, u.email, u.display_name, u.company_id, c.name AS company_name, u.role, u.is_active,
+              u.password_hash, u.failed_login_count, u.locked_until, u.password_changed_at
+         FROM users u
+         LEFT JOIN companies c ON c.id = u.company_id
+        WHERE u.id = ?
         LIMIT 1`,
       [id],
     );
@@ -306,11 +413,14 @@ export class MySqlAuthStore implements AuthStore {
               u.id            AS user_id,
               u.email,
               u.display_name,
+              u.company_id,
+              c.name          AS company_name,
               u.role,
               u.is_active,
               u.password_changed_at
          FROM sessions s
          JOIN users u ON u.id = s.user_id
+         LEFT JOIN companies c ON c.id = u.company_id
         WHERE s.token_hash = ?
         LIMIT 1`,
       [tokenHash],
@@ -330,6 +440,8 @@ export class MySqlAuthStore implements AuthStore {
         id: row.user_id,
         email: row.email,
         displayName: row.display_name,
+        companyId: row.company_id ?? null,
+        companyName: row.company_name ?? null,
         role: row.role,
         isActive: row.is_active === 1,
         passwordChangedAt: toDateOrNull(row.password_changed_at),
@@ -444,11 +556,12 @@ export class MySqlAuthStore implements AuthStore {
 
     const [result] = await this.pool.execute(
       `INSERT INTO audit_logs
-         (user_id, target_user_id, action, outcome, resource_type, resource_id,
+         (user_id, company_id, target_user_id, action, outcome, resource_type, resource_id,
           ip_hash, user_agent, request_id, prev_hash, entry_hash, metadata, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         event.userId,
+        event.companyId ?? null,
         event.targetUserId ?? null,
         event.action,
         event.outcome,
@@ -471,6 +584,7 @@ export class MySqlAuthStore implements AuthStore {
     return {
       id: insertId,
       userId: event.userId,
+      companyId: event.companyId ?? null,
       targetUserId: event.targetUserId ?? null,
       action: event.action,
       outcome: event.outcome,

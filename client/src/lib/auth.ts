@@ -6,6 +6,8 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string | null;
+  companyId?: string | null;
+  companyName?: string | null;
   role: UserRole;
   isActive: boolean;
 }
@@ -55,6 +57,19 @@ export function login(email: string, password: string): Promise<ApiResult<AuthPa
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
+  });
+}
+
+export function registerCompany(input: {
+  name: string;
+  email: string;
+  password: string;
+  companyName: string;
+}): Promise<ApiResult<AuthPayload>> {
+  return request<AuthPayload>(`${API_PREFIX}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
   });
 }
 

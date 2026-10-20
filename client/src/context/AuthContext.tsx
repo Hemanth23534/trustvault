@@ -9,7 +9,14 @@ import {
   type ReactNode,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchMe, login as loginRequest, logout as logoutRequest, type AuthSession, type AuthUser } from '../lib/auth';
+import {
+  fetchMe,
+  login as loginRequest,
+  logout as logoutRequest,
+  registerCompany as registerCompanyRequest,
+  type AuthSession,
+  type AuthUser,
+} from '../lib/auth';
 import { extractErrorMessage } from '../lib/auth';
 import { setUnauthorizedHandler } from '../lib/session-events';
 
@@ -28,6 +35,12 @@ export interface AuthContextValue {
   csrfToken: string | null;
   notice: string | null;
   login: (email: string, password: string) => Promise<LoginOutcome>;
+  registerCompany: (input: {
+    name: string;
+    email: string;
+    password: string;
+    companyName: string;
+  }) => Promise<LoginOutcome>;
   logout: () => Promise<void>;
   /** Called by the API layer when a session is no longer valid. */
   expireSession: (message?: string) => void;
@@ -115,6 +128,36 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     }
   }, []);
 
+  const registerCompany = useCallback(
+    async (input: {
+      name: string;
+      email: string;
+      password: string;
+      companyName: string;
+    }): Promise<LoginOutcome> => {
+      try {
+        const result = await registerCompanyRequest(input);
+        if (!result.ok) {
+          return {
+            ok: false,
+            message: extractErrorMessage(result.data) ?? `Registration failed (HTTP ${result.status}).`,
+          };
+        }
+        setUser(result.data.user);
+        setSession(result.data.session);
+        setNotice(null);
+        setStatus('authenticated');
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          message: error instanceof Error ? error.message : 'Could not reach the API.',
+        };
+      }
+    },
+    [],
+  );
+
   const logout = useCallback(async () => {
     const token = session?.csrfToken;
     try {
@@ -136,11 +179,12 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       csrfToken: session?.csrfToken ?? null,
       notice,
       login,
+      registerCompany,
       logout,
       expireSession,
       clearNotice: () => setNotice(null),
     }),
-    [status, user, session, notice, login, logout, expireSession],
+    [status, user, session, notice, login, registerCompany, logout, expireSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

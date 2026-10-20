@@ -10,7 +10,7 @@ import type {
   CheckpointRecord,
   UserWithCredentials,
 } from './auth-store.js';
-import { verifyAgainstDummyHash, verifyPassword } from './password.js';
+import { hashPassword, verifyAgainstDummyHash, verifyPassword } from './password.js';
 import {
   constantTimeEqual,
   generateCsrfToken,
@@ -70,14 +70,27 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+export interface RegisterCompanyInput {
+  displayName: string;
+  email: string;
+  password: string;
+  companyName: string;
+  ip?: string | undefined;
+  userAgent?: string | undefined;
+  requestId?: string | undefined;
+}
+
 function toAuthUser(user: UserWithCredentials): AuthUser {
-  return {
+  const result: AuthUser = {
     id: user.id,
     email: user.email,
     displayName: user.displayName,
     role: user.role,
     isActive: user.isActive,
   };
+  if (user.companyId) result.companyId = user.companyId;
+  if (user.companyName) result.companyName = user.companyName;
+  return result;
 }
 
 function invalidCredentials(): AuthError {
@@ -97,6 +110,83 @@ export class AuthService {
     this.env = options.env;
     this.clock = options.clock ?? (() => new Date());
     this.logger = options.logger;
+  }
+
+  async registerCompany(input: RegisterCompanyInput): Promise<LoginResult> {
+    const now = this.clock();
+    const email = normalizeEmail(input.email);
+
+    if (input.password.length < 12) {
+      throw new AuthError(422, 'WEAK_PASSWORD', 'Password must be at least 12 characters.');
+    }
+
+    const existing = await this.store.findUserByEmail(email);
+    if (existing) {
+      throw new AuthError(
+        409,
+        'EMAIL_ALREADY_EXISTS',
+        'An account with this email address already exists. Please sign in or use a different email.',
+      );
+    }
+
+    const companyId = newId();
+    const company = await this.store.createCompany({
+      id: companyId,
+      name: input.companyName.trim(),
+      createdAt: now,
+    });
+
+    const passwordHash = await hashPassword(input.password, this.env.security.bcryptCost);
+    const userId = newId();
+    const user = await this.store.createUser({
+      id: userId,
+      email,
+      displayName: input.displayName.trim(),
+      companyId: company.id,
+      role: 'owner',
+      passwordHash,
+      createdAt: now,
+    });
+    user.companyName = company.name;
+
+    const token = generateSessionToken();
+    const tokenHash = hashSessionToken(token);
+    const csrfToken = generateCsrfToken();
+    const sessionId = newId();
+    const expiresAt = new Date(now.getTime() + this.env.session.ttlHours * 3600_000);
+
+    await this.store.createSession({
+      id: sessionId,
+      userId: user.id,
+      tokenHash,
+      csrfToken,
+      ipHash: hashIpAddress(input.ip, this.env.session.secret),
+      userAgent: truncate(input.userAgent, 255),
+      createdAt: now,
+      expiresAt,
+    });
+
+    await this.audit({
+      userId: user.id,
+      companyId: company.id,
+      action: 'company_registered',
+      outcome: 'success',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      requestId: input.requestId,
+      metadata: { companyName: company.name },
+    });
+
+    return {
+      user: toAuthUser(user),
+      session: {
+        id: sessionId,
+        csrfToken,
+        createdAt: now,
+        expiresAt,
+      },
+      token,
+    };
   }
 
   async login(input: LoginInput): Promise<LoginResult> {
@@ -403,6 +493,7 @@ export class AuthService {
 
   private async audit(input: {
     userId: string | null;
+    companyId?: string | null;
     targetUserId?: string | null;
     action: string;
     outcome: 'success' | 'failure' | 'denied';
@@ -415,6 +506,7 @@ export class AuthService {
   }): Promise<void> {
     const event: AuditEventInput = {
       userId: input.userId,
+      companyId: input.companyId ?? null,
       targetUserId: input.targetUserId ?? null,
       action: input.action,
       outcome: input.outcome,

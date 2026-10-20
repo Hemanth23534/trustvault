@@ -93,7 +93,7 @@ export interface DocumentListPage {
 }
 
 function viewerOf(actor: AuthUser): DocumentViewer {
-  return { id: actor.id, role: actor.role };
+  return { id: actor.id, role: actor.role, companyId: actor.companyId ?? null };
 }
 
 /** Drops the internal storage key so it can never be serialised to a client. */
@@ -215,6 +215,7 @@ export class DocumentService {
     const createInput: CreateDocumentInput = {
       id: documentId,
       ownerId: input.actor.id,
+      companyId: input.actor.companyId ?? null,
       title,
       description,
       fileName: validation.displayFileName,

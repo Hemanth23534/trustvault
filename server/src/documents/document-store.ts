@@ -12,6 +12,7 @@ import type {
 export interface DocumentViewer {
   id: string;
   role: UserRole;
+  companyId?: string | null;
 }
 
 export interface ListDocumentsQuery {
@@ -34,6 +35,7 @@ export interface DocumentListResult {
 export interface CreateDocumentInput {
   id: string;
   ownerId: string;
+  companyId?: string | null;
   title: string;
   description: string | null;
   fileName: string;
@@ -68,6 +70,7 @@ export interface DocumentStore {
 interface DocumentRow extends RowDataPacket {
   id: string;
   owner_id: string;
+  company_id?: string | null;
   title: string;
   description: string | null;
   file_name: string;
@@ -104,10 +107,12 @@ export function likePattern(value: string): string {
 function toDocument(row: DocumentRow): DocumentWithStorage {
   return {
     id: row.id,
+    companyId: row.company_id ?? null,
     owner: {
       id: row.owner_id,
       email: row.owner_email,
       displayName: row.owner_display_name,
+      companyId: row.company_id ?? null,
     },
     title: row.title,
     description: row.description,
@@ -140,7 +145,7 @@ function toDocument(row: DocumentRow): DocumentWithStorage {
 const ACCESS_PREDICATE = `(d.owner_id = ? OR p.user_id IS NOT NULL)`;
 
 const SELECT_COLUMNS = `
-  d.id, d.owner_id, d.title, d.description, d.file_name, d.storage_key,
+  d.id, d.owner_id, d.company_id, d.title, d.description, d.file_name, d.storage_key,
   d.mime_type, d.size_bytes, d.checksum_sha256, d.status, d.category,
   d.created_at, d.updated_at, d.deleted_at,
   u.email AS owner_email, u.display_name AS owner_display_name,
@@ -181,6 +186,10 @@ export class MySqlDocumentStore implements DocumentStore {
       conditions.push('d.created_at <= ?');
       filterParams.push(query.createdTo);
     }
+    if (viewer.companyId) {
+      conditions.push('(d.company_id = ? OR d.company_id IS NULL)');
+      filterParams.push(viewer.companyId);
+    }
 
     const where = conditions.join(' AND ');
     const order = query.sort.order === 'asc' ? 'ASC' : 'DESC';
@@ -218,15 +227,22 @@ export class MySqlDocumentStore implements DocumentStore {
     id: string,
     viewer: DocumentViewer,
   ): Promise<DocumentWithStorage | null> {
+    const conditions = ['d.id = ?', 'd.deleted_at IS NULL', ACCESS_PREDICATE];
+    const bindings: Array<string | number | Date> = [viewer.id, id, viewer.id];
+    if (viewer.companyId) {
+      conditions.push('(d.company_id = ? OR d.company_id IS NULL)');
+      bindings.push(viewer.companyId);
+    }
+
     const [rows] = await this.pool.execute<DocumentRow[]>(
       `SELECT ${SELECT_COLUMNS}
          FROM documents d
          JOIN users u ON u.id = d.owner_id
          LEFT JOIN document_permissions p
                 ON p.document_id = d.id AND p.user_id = ?
-        WHERE d.id = ? AND d.deleted_at IS NULL AND ${ACCESS_PREDICATE}
+        WHERE ${conditions.join(' AND ')}
         LIMIT 1`,
-      [viewer.id, viewer.id, id, viewer.id],
+      bindings,
     );
 
     const row = rows[0];
@@ -239,12 +255,13 @@ export class MySqlDocumentStore implements DocumentStore {
   ): Promise<DocumentWithStorage> {
     await this.pool.execute(
       `INSERT INTO documents
-         (id, owner_id, title, description, file_name, storage_key, mime_type,
+         (id, owner_id, company_id, title, description, file_name, storage_key, mime_type,
           size_bytes, checksum_sha256, status, category, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       [
         input.id,
         input.ownerId,
+        input.companyId ?? null,
         input.title,
         input.description,
         input.fileName,

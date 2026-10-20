@@ -31,6 +31,22 @@ Snovasys hackathon.
 | Document permissions & sharing | ✅ owner/editor/viewer, immediate revocation, admin isolation |
 | Tamper-evident audit trail & admin | ✅ SHA-256 hash chaining, DB triggers, admin dashboard |
 | Independent security review & fixes | ✅ 13 categories evaluated, 3 fixed, 1 documented residual |
+| Public self-registration | ✅ `/register` view & `POST /api/auth/register` with rate limiting & validation |
+| Multi-tenant company workspaces | ✅ Migration 0006, database isolation on docs, users & audit logs |
+| Password reset & email verification | ℹ️ Planned roadmap (documented token spec; requires external SMTP) |
+
+### Account Model & Production Readiness Status
+
+| Feature | Status | Implementation Details |
+|---|---|---|
+| Operator-seeded Demo Accounts | ✅ Implemented | `admin`, `owner`, `viewer` provisioned via `npm run seed`; refused in production unless `SEED_ALLOW_PRODUCTION=true` |
+| Password Hashing & Salt | ✅ Implemented | bcrypt (cost factor 12), constant-time comparisons, dummy-hash timing attack protection |
+| Server-side Sessions & CSRF | ✅ Implemented | HttpOnly, SameSite=Lax, Secure in production; per-session synchronizer CSRF tokens on mutating requests |
+| Dual-tier Rate Limiting | ✅ Implemented | Tier-1 global per-IP ceiling (spray prevention) + Tier-2 per-(IP+email) account brute-force protection |
+| Document Permissions & Revocation | ✅ Implemented | Row-level checks on every request; zero caching latency; immediate 404 on revocation; admin file isolation |
+| Public Registration & Workspaces | ✅ Implemented | `/register` page alongside login; provisions company + owner account atomically; establishes session immediately |
+| Multi-tenant Company Boundaries | ✅ Implemented | `companies` table, foreign keys on users/documents/audit_logs, cross-tenant isolation verified in backend & DB |
+| Password Reset & Email Verification | ℹ️ Documented Spec | Token-based recovery spec documented in THREATS.md; requires external mail service (SendGrid/AWS SES) |
 
 See **[THREATS.md](THREATS.md)** for the threat model,
 **[PROMPTS.md](PROMPTS.md)** for the AI-assistance log, and
@@ -47,10 +63,11 @@ Everything below was executed and verified locally
 |-------|---------|--------|
 | Server type check | `npm run typecheck --workspace @trustvault/server` | ✅ 0 errors |
 | Client type check | `npm run typecheck --workspace @trustvault/client` | ✅ 0 errors |
-| Server tests | `npm run test:server` | ✅ 12 files, **202 tests passed** |
+| Server tests | `npm run test:server` | ✅ 13 files, **207 tests passed** |
 | Client tests | `npm run test:client` | ✅ 3 files, **22 tests passed** |
-| Total automated test count | `npm test` | ✅ 15 files, **224 tests passed** |
-| Production build | `npm run build` | ✅ `server/dist` (tsc) + `client/dist` (Vite, 335.8 kB JS / 23.4 kB CSS) |
+| Total automated test count | `npm test` | ✅ 16 files, **229 tests passed** |
+| Production build | `npm run build` | ✅ `server/dist` (tsc) + `client/dist` (Vite, 341.6 kB JS / 23.4 kB CSS) |
+| Company registration suite | `npx vitest run tests/company-registration.test.ts` | ✅ 5 tests passed (registration, duplicate 409, escalation block, tenant isolation) |
 | Security regression suite | `npx vitest run tests/security-regression.test.ts` | ✅ 5 tests passed (spray throttling, title redaction, revocation) |
 | Liveness | `GET /api/health` | ✅ 200 + Helmet headers, `X-Request-Id`, `no-store` |
 | Readiness (DB probe) | `GET /api/health/database` | ✅ 200 / 503 sanitized driver codes |
@@ -180,7 +197,15 @@ npm run migrate          # applies 0001_foundation
 Expected: `Applied 0001_foundation ...` then `Database is up to date.` on a
 second run.
 
-### 6. Run both apps
+### 6. Seed demo accounts (development only)
+
+```powershell
+npm run seed --workspace @trustvault/server
+```
+
+Generates or updates the 3 demo accounts (`owner@trustvault.local`, `viewer@trustvault.local`, `admin@trustvault.local`). Refuses to run against production unless `SEED_ALLOW_PRODUCTION=true`.
+
+### 7. Run both apps
 
 ```powershell
 npm run dev
@@ -196,7 +221,7 @@ npm run dev:server
 npm run dev:client
 ```
 
-### 7. Prove the API works
+### 8. Prove the API works
 
 ```powershell
 curl.exe http://localhost:4000/api/health
@@ -788,17 +813,17 @@ npm run migrate
 Verify status:
 ```powershell
 npm run migrate:status
-# Expected: 5 applied, 0 pending, 0 drifted, 0 missing
+# Expected: 6 applied, 0 pending, 0 drifted, 0 missing
 ```
 
-### 5. Seed Demo Accounts
-Safely seed demo accounts (admin, owner, viewer):
+### 5. Seed Demo Accounts (Development Only)
+Safely seed demo accounts (admin, owner, viewer) for local testing:
 ```powershell
 # For production mode, pass SEED_ALLOW_PRODUCTION=true
 $env:SEED_ALLOW_PRODUCTION="true"
 npm run seed
 ```
-Save the printed generated passwords. Passwords are shown once and stored solely as bcrypt hashes.
+Save the printed generated passwords. Passwords are shown once and stored solely as bcrypt hashes. In production, public registration (`/register`) allows organizations to self-onboard securely without needing demo seeds.
 
 ### 6. Build and Run Production Services
 Build both client and server:
@@ -809,7 +834,7 @@ npm run build
 Run tests to verify deployment integrity:
 ```powershell
 npm test
-# Expected: 202 server tests + 22 client tests passing
+# Expected: 207 server tests + 22 client tests passing (229 total)
 ```
 
 Start the API and Client:
@@ -822,4 +847,66 @@ cd client
 npx vite preview --port 5173
 ```
 Access the application at `http://localhost:5173`.
+
+---
+
+## Pushing to GitHub
+
+To push this repository to GitHub so that anyone can clone, test, or deploy it:
+
+1. **Verify no secrets are tracked**:
+   ```powershell
+   git status
+   # Ensure .env and server/storage/ are ignored and untracked
+   ```
+
+2. **Commit your changes**:
+   ```powershell
+   git add -A
+   git commit -m "feat: multi-tenant company registration, workspace isolation, and production UI"
+   ```
+
+3. **Link to your GitHub repository**:
+   Create a new public repository on [GitHub](https://github.com/new) (e.g. `trustvault`), then link and push:
+   ```powershell
+   git remote add origin https://github.com/<YOUR_GITHUB_USERNAME>/trustvault.git
+   git branch -M main
+   git push -u origin main
+   ```
+
+---
+
+## Live Deployment (Getting a Public URL)
+
+TrustVault can be deployed to any Node.js + MySQL cloud host (e.g., Render, Railway, AWS ECS, Fly.io):
+
+### Option A: Railway / Render (Easiest)
+1. **Provision MySQL**:
+   - Create a MySQL 8 database service on [Railway](https://railway.app) or [Render](https://render.com).
+   - Copy the MySQL connection parameters (`MYSQLHOST`, `MYSQLPORT`, `MYSQLUSER`, `MYSQLPASSWORD`, `MYSQLDATABASE`).
+
+2. **Deploy API (`server`)**:
+   - Connect your GitHub repository as a Web Service.
+   - Set Root Directory: `server` (or build from root using workspace scripts).
+   - Set Build Command: `npm install && npm run build`
+   - Set Start Command: `npm run migrate && npm start`
+   - Set Environment Variables:
+     - `NODE_ENV=production`
+     - `PORT=4000`
+     - `SESSION_SECRET=<random 64-character hex string>`
+     - `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`
+     - `CLIENT_ORIGIN=https://<your-frontend-domain>`
+
+3. **Deploy Web Client (`client`)**:
+   - Create a Static Site service connected to your GitHub repo.
+   - Set Root Directory: `client`
+   - Set Build Command: `npm install && npm run build`
+   - Set Publish Directory: `dist`
+   - Set Environment Variable:
+     - `VITE_API_BASE_URL=https://<your-api-domain>`
+
+4. **Live Access**:
+   - Open your frontend URL: `https://<your-frontend-domain>`.
+   - Anyone can click **Register company workspace** to register their company, or log in with their credentials!
+
 

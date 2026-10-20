@@ -18,6 +18,18 @@ const loginBodySchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+const registerBodySchema = z.object({
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(80),
+  email: z
+    .string()
+    .trim()
+    .min(3)
+    .max(320)
+    .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Enter a valid email address'),
+  companyName: z.string().trim().min(2, 'Company name must be at least 2 characters').max(120),
+  password: z.string().min(12, 'Password must be at least 12 characters').max(128),
+});
+
 export interface AuthRouterOptions {
   env: Env;
   service: AuthService;
@@ -96,7 +108,42 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
     });
   }
 
+  /**
+   * POST /api/auth/register
+   * Public company workspace registration. Creates company and owner.
+   */
+  async function register(
+    req: Parameters<RequestHandler>[0],
+    res: Parameters<RequestHandler>[1],
+  ): Promise<void> {
+    const parsed = registerBodySchema.safeParse(req.body);
+    if (!parsed.success) throw parsed.error;
+
+    const result = await service.registerCompany({
+      displayName: parsed.data.name,
+      email: parsed.data.email,
+      password: parsed.data.password,
+      companyName: parsed.data.companyName,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      requestId: req.id,
+    });
+
+    const maxAge = Math.max(0, result.session.expiresAt.getTime() - Date.now());
+    res.cookie(env.session.cookieName, result.token, { ...cookieOptions(env), maxAge });
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(201).json({
+      user: result.user,
+      session: {
+        csrfToken: result.session.csrfToken,
+        createdAt: result.session.createdAt.toISOString(),
+        expiresAt: result.session.expiresAt.toISOString(),
+      },
+    });
+  }
+
   router.post('/login', ...loginHandlers);
+  router.post('/register', ...(options.loginIpRateLimiter ? [options.loginIpRateLimiter] : []), register);
 
   /** GET /api/auth/me — who am I, and what is my CSRF token after a reload. */
   router.get('/me', guard, (req, res) => {

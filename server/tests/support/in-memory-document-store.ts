@@ -16,6 +16,7 @@ import type {
 interface StoredDocument {
   id: string;
   ownerId: string;
+  companyId?: string | null;
   title: string;
   description: string | null;
   fileName: string;
@@ -82,6 +83,9 @@ export class InMemoryDocumentStore implements DocumentStore {
     document: StoredDocument,
     viewer: DocumentViewer,
   ): { mode: DocumentAccessMode; role: PermissionRole | null } | null {
+    if (viewer.companyId && document.companyId && viewer.companyId !== document.companyId) {
+      return null;
+    }
     if (document.ownerId === viewer.id) return { mode: 'owner', role: null };
 
     const grant = this.grants.get(document.id)?.get(viewer.id);
@@ -93,6 +97,7 @@ export class InMemoryDocumentStore implements DocumentStore {
   private toRecord(document: StoredDocument, access: NonNullable<ReturnType<InMemoryDocumentStore['accessFor']>>): DocumentWithStorage {
     return {
       id: document.id,
+      companyId: document.companyId ?? null,
       owner: this.ownerOf(document),
       title: document.title,
       description: document.description,
@@ -180,6 +185,7 @@ export class InMemoryDocumentStore implements DocumentStore {
     const document: StoredDocument = {
       id: input.id,
       ownerId: input.ownerId,
+      companyId: input.companyId ?? null,
       title: input.title,
       description: input.description,
       fileName: input.fileName,
