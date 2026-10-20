@@ -3,6 +3,12 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { ReadStream } from 'node:fs';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 
 /**
  * Private document storage.
@@ -154,6 +160,99 @@ export class FsDocumentStorage implements DocumentStorage {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
+  }
+}
+
+export interface R2DocumentStorageOptions {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  endpoint?: string;
+}
+
+/**
+ * Cloudflare R2 / S3-compatible private document storage.
+ *
+ * Security properties preserved:
+ * - Storage keys remain server-generated UUIDs + validated extensions.
+ * - Files are private and never accessible via public HTTP URLs.
+ * - Downloads are streamed through the API only after row-level DB authorization.
+ */
+export class R2DocumentStorage implements DocumentStorage {
+  private readonly client: S3Client;
+  private readonly bucketName: string;
+
+  constructor(options: R2DocumentStorageOptions) {
+    this.bucketName = options.bucketName;
+    const endpoint =
+      options.endpoint || `https://${options.accountId}.r2.cloudflarestorage.com`;
+    this.client = new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: {
+        accessKeyId: options.accessKeyId,
+        secretAccessKey: options.secretAccessKey,
+      },
+    });
+  }
+
+  async save(input: {
+    documentId: string;
+    extension: string;
+    buffer: Buffer;
+  }): Promise<StoredFile> {
+    const storageKey = buildStorageKey({
+      documentId: input.documentId,
+      extension: input.extension,
+      now: new Date(),
+    });
+    const safeKey = assertSafeStorageKey(storageKey);
+
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: safeKey,
+        Body: input.buffer,
+        ContentType: 'application/octet-stream',
+      }),
+    );
+
+    return { storageKey: safeKey, sizeBytes: input.buffer.length };
+  }
+
+  async open(storageKey: string): Promise<StoredDocument | null> {
+    const safeKey = assertSafeStorageKey(storageKey);
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({
+          Bucket: this.bucketName,
+          Key: safeKey,
+        }),
+      );
+
+      if (!response.Body) return null;
+      return {
+        stream: response.Body as Readable,
+        sizeBytes: response.ContentLength ?? 0,
+      };
+    } catch (error: unknown) {
+      const err = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async remove(storageKey: string): Promise<void> {
+    const safeKey = assertSafeStorageKey(storageKey);
+    await this.client.send(
+      new DeleteObjectCommand({
+        Bucket: this.bucketName,
+        Key: safeKey,
+      }),
+    );
   }
 }
 

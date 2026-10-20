@@ -80,7 +80,7 @@ export interface RegisterCompanyInput {
   requestId?: string | undefined;
 }
 
-function toAuthUser(user: UserWithCredentials): AuthUser {
+function toAuthUser(user: AuthUser): AuthUser {
   const result: AuthUser = {
     id: user.id,
     email: user.email,
@@ -374,13 +374,7 @@ export class AuthService {
 
     return {
       token: rawToken,
-      user: {
-        id: session.user.id,
-        email: session.user.email,
-        displayName: session.user.displayName,
-        role: session.user.role,
-        isActive: session.user.isActive,
-      },
+      user: toAuthUser(session.user),
       session: {
         id: session.id,
         csrfToken: session.csrfToken,

@@ -48,6 +48,12 @@ export function createPool(env: Env): Pool {
     decimalNumbers: true,
     namedPlaceholders: true,
     multipleStatements: false,
+    ssl: env.database.ssl
+      ? {
+          minVersion: 'TLSv1.2',
+          rejectUnauthorized: env.database.sslRejectUnauthorized !== false,
+        }
+      : undefined,
   });
 
   // Pin every pooled connection to UTC.

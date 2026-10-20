@@ -60,6 +60,19 @@ export interface Env {
     readonly password: string;
     readonly name: string;
     readonly connectionLimit: number;
+    readonly ssl?: boolean;
+    readonly sslRejectUnauthorized?: boolean;
+  };
+  readonly storage?: {
+    readonly driver: 'fs' | 'r2';
+    readonly storageDir?: string;
+    readonly r2?: {
+      readonly accountId: string;
+      readonly accessKeyId: string;
+      readonly secretAccessKey: string;
+      readonly bucketName: string;
+      readonly endpoint?: string;
+    };
   };
   /** Absolute path to private, git-ignored document storage. */
   readonly storageDir: string;
@@ -188,6 +201,21 @@ const envSchema = z
       .regex(/^[A-Za-z0-9_]{1,64}$/, 'DATABASE_NAME must be 1-64 characters of [A-Za-z0-9_]')
       .default('trustvault'),
     DATABASE_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(50).default(10),
+    DATABASE_SSL: z
+      .string()
+      .optional()
+      .transform((val) => val === 'true' || val === '1' || val === 'require'),
+    DATABASE_SSL_REJECT_UNAUTHORIZED: z
+      .string()
+      .optional()
+      .transform((val) => val !== 'false' && val !== '0'),
+
+    STORAGE_DRIVER: z.enum(['fs', 'r2']).default('fs'),
+    R2_ACCOUNT_ID: z.string().optional(),
+    R2_ACCESS_KEY_ID: z.string().optional(),
+    R2_SECRET_ACCESS_KEY: z.string().optional(),
+    R2_BUCKET_NAME: z.string().optional(),
+    R2_ENDPOINT: z.string().optional(),
 
     STORAGE_DIR: z.string().min(1).default('./storage'),
     MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).max(104_857_600).default(10_485_760),
@@ -292,6 +320,26 @@ function toEnv(parsed: RawEnv): Env {
       password: parsed.DATABASE_PASSWORD,
       name: parsed.DATABASE_NAME,
       connectionLimit: parsed.DATABASE_CONNECTION_LIMIT,
+      ...(parsed.DATABASE_SSL ? { ssl: true, sslRejectUnauthorized: parsed.DATABASE_SSL_REJECT_UNAUTHORIZED } : {}),
+    },
+    storage: {
+      driver: parsed.STORAGE_DRIVER,
+      storageDir: path.isAbsolute(parsed.STORAGE_DIR)
+        ? path.normalize(parsed.STORAGE_DIR)
+        : path.resolve(SERVER_ROOT, parsed.STORAGE_DIR),
+      r2:
+        parsed.R2_ACCOUNT_ID &&
+        parsed.R2_ACCESS_KEY_ID &&
+        parsed.R2_SECRET_ACCESS_KEY &&
+        parsed.R2_BUCKET_NAME
+          ? {
+              accountId: parsed.R2_ACCOUNT_ID,
+              accessKeyId: parsed.R2_ACCESS_KEY_ID,
+              secretAccessKey: parsed.R2_SECRET_ACCESS_KEY,
+              bucketName: parsed.R2_BUCKET_NAME,
+              endpoint: parsed.R2_ENDPOINT,
+            }
+          : undefined,
     },
     storageDir: path.isAbsolute(parsed.STORAGE_DIR)
       ? path.normalize(parsed.STORAGE_DIR)

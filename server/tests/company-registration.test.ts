@@ -171,13 +171,13 @@ describe('Company Registration and Multi-Tenant Isolation', () => {
 
     // 3. User A creates a document in Company A
     const doc = await documentStore.create({
-      id: 'doc-comp-a-0001',
+      id: 'a0000000-0000-4000-a000-000000000001',
       ownerId: userA.id,
       companyId: userA.companyId,
       title: 'Company A Confidential Strategy',
       description: 'Secret plans',
       fileName: 'strategy.pdf',
-      storageKey: 'storage/doc-a-0001',
+      storageKey: '2026/10/a0000000-0000-4000-a000-000000000001.pdf',
       mimeType: 'application/pdf',
       sizeBytes: 1024,
       checksumSha256: null,
@@ -204,5 +204,15 @@ describe('Company Registration and Multi-Tenant Isolation', () => {
       .get(`/api/documents/${doc.id}`)
       .set('Cookie', cookieB)
       .expect(404);
+
+    // 7. User A cannot share Company A document with User B from Company B
+    const csrfA = resA.body.session.csrfToken;
+    const shareRes = await request(app)
+      .post(`/api/documents/${doc.id}/permissions`)
+      .set('Cookie', cookieA)
+      .set('X-CSRF-Token', csrfA)
+      .send({ email: 'bob@companyb.example', role: 'viewer' })
+      .expect(403);
+    expect(shareRes.body.error.code).toBe('CROSS_TENANT_SHARING_FORBIDDEN');
   });
 });

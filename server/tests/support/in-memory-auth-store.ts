@@ -192,6 +192,8 @@ export class InMemoryAuthStore implements AuthStore {
           role: user.role,
           isActive: user.isActive,
           passwordChangedAt: user.passwordChangedAt,
+          companyId: user.companyId ?? null,
+          companyName: user.companyName ?? null,
         },
       };
     }

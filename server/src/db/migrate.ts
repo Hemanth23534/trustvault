@@ -157,7 +157,23 @@ export async function runMigrations(options: MigrationRunOptions): Promise<Migra
 
       try {
         for (const statement of statements) {
-          await connection.query(statement);
+          try {
+            await connection.query(statement);
+          } catch (stmtError: unknown) {
+            const err = stmtError as { message?: string; code?: string; errno?: number };
+            const isTrigger =
+              statement.toUpperCase().includes('TRIGGER') &&
+              (err.message?.includes('not supported') ||
+                err.message?.includes('TiDB') ||
+                err.code === 'ER_NOT_SUPPORTED_YET' ||
+                err.errno === 1105);
+            if (isTrigger) {
+              log(`[warning] Database engine does not support triggers. Skipping statement: ${err.message ?? 'unsupported'}`);
+              executed += 1;
+              continue;
+            }
+            throw stmtError;
+          }
           executed += 1;
         }
       } catch (error) {

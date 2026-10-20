@@ -28,7 +28,7 @@ import type { DocumentAuditEvent } from './documents/document-service.js';
 import type { DocumentStore } from './documents/document-store.js';
 import { MySqlDocumentStore } from './documents/document-store.js';
 import { DocumentService } from './documents/document-service.js';
-import { FsDocumentStorage, type DocumentStorage } from './documents/storage.js';
+import { FsDocumentStorage, R2DocumentStorage, type DocumentStorage } from './documents/storage.js';
 
 export interface CreateAppOptions {
   env: Env;
@@ -67,7 +67,10 @@ export function createApp(options: CreateAppOptions): Express {
   const activityStore: DocumentActivityStore =
     options.documentActivityStore ?? new MySqlDocumentActivityStore(getPool(env));
   const documentStorage: DocumentStorage =
-    options.documentStorage ?? new FsDocumentStorage(env.storageDir);
+    options.documentStorage ??
+    (env.storage?.driver === 'r2' && env.storage.r2
+      ? new R2DocumentStorage(env.storage.r2)
+      : new FsDocumentStorage(env.storageDir));
 
   // One audit sink for every document-related action, so history and the admin
   // dashboard see a single, consistent stream.

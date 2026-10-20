@@ -16,6 +16,7 @@ export interface DirectoryUser {
   displayName: string | null;
   role: 'admin' | 'owner' | 'viewer';
   isActive: boolean;
+  companyId?: string | null;
 }
 
 export interface PermissionPage {
@@ -83,6 +84,7 @@ interface DirectoryRow extends RowDataPacket {
   display_name: string | null;
   role: 'admin' | 'owner' | 'viewer';
   is_active: number;
+  company_id: string | null;
 }
 
 interface ActivityRow extends RowDataPacket {
@@ -225,7 +227,7 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
 
   async findUserByEmail(email: string): Promise<DirectoryUser | null> {
     const [rows] = await this.pool.execute<DirectoryRow[]>(
-      `SELECT id, email, display_name, role, is_active
+      `SELECT id, email, display_name, role, is_active, company_id
          FROM users
         WHERE email = ?
         LIMIT 1`,
@@ -239,6 +241,7 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
       displayName: row.display_name,
       role: row.role,
       isActive: row.is_active === 1,
+      companyId: row.company_id ?? null,
     };
   }
 

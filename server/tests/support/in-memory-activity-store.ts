@@ -108,6 +108,7 @@ export class InMemoryDocumentActivityStore implements DocumentActivityStore {
           displayName: user.displayName,
           role: user.role,
           isActive: user.isActive,
+          companyId: user.companyId ?? null,
         };
       }
     }
