@@ -15,7 +15,7 @@ import { UploadPage } from './pages/UploadPage';
 
 export function App(): JSX.Element {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />

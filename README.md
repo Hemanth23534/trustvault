@@ -911,4 +911,24 @@ TrustVault can be deployed to any Node.js + MySQL cloud host (e.g., Render, Rail
    - Open your frontend URL: `https://<your-frontend-domain>`.
    - Anyone can click **Register company workspace** to register their company, or log in with their credentials!
 
+### Option B: GitHub Pages (Frontend Client Only)
+
+A GitHub Actions workflow is provided at `.github/workflows/deploy-pages.yml` to build and deploy the React frontend to GitHub Pages.
+
+#### How to Enable GitHub Pages:
+1. In your GitHub repository, navigate to **Settings** → **Pages**.
+2. Under **Build and deployment** → **Source**, select **GitHub Actions**.
+3. (Optional) Go to **Settings** → **Secrets and variables** → **Actions** → **Variables**, click **New repository variable**, and add:
+   - Name: `VITE_API_BASE_URL`
+   - Value: `https://<your-deployed-api-url>` (e.g. your Render or Railway backend).
+4. Push a commit to `main` (or trigger the workflow manually under the **Actions** tab).
+5. The frontend will be published at `https://<YOUR_GITHUB_USERNAME>.github.io/trustvault/`.
+
+> [!WARNING]
+> **Limitations of GitHub Pages**:
+> - GitHub Pages hosts **only static assets** (HTML, CSS, JS).
+> - It **cannot** host the Node.js Express backend, the MySQL 8 database, HttpOnly session cookies, or private document filesystem storage.
+> - Unless a real TrustVault API backend is deployed and configured via `VITE_API_BASE_URL`, authentication and document features on the GitHub Pages site will display connection errors when attempting to reach the server.
+
+
 
