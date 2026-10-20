@@ -1,0 +1,456 @@
+import {
+  computeCheckpointHash,
+  computeEntryHash,
+  GENESIS_HASH,
+} from '../../src/auth/audit-crypto.js';
+import type {
+  AuditEventInput,
+  AuditFilterParams,
+  AuditLogEntry,
+  AuditVerificationResult,
+  AuthStore,
+  CheckpointRecord,
+  CreateSessionInput,
+  SessionRecord,
+  UserWithCredentials,
+} from '../../src/auth/auth-store.js';
+import type { UserRole } from '../../src/auth/types.js';
+
+interface StoredSession {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  csrfToken: string;
+  createdAt: Date;
+  expiresAt: Date;
+  lastSeenAt: Date;
+  revokedAt: Date | null;
+}
+
+export interface NewUserInput {
+  email: string;
+  passwordHash: string;
+  role?: UserRole;
+  isActive?: boolean;
+  displayName?: string | null;
+  failedLoginCount?: number;
+  lockedUntil?: Date | null;
+  passwordChangedAt?: Date | null;
+}
+
+/**
+ * Test double for AuthStore.
+ *
+ * It mirrors the MySQL semantics (hashed token lookup, revocation, lockout
+ * counters, tamper-evident hash chaining, and append-only audit enforcement)
+ * without a database, so the auth and audit flows can be exercised through real
+ * HTTP requests.
+ */
+export class InMemoryAuthStore implements AuthStore {
+  readonly users = new Map<string, UserWithCredentials>();
+  readonly sessions = new Map<string, StoredSession>();
+  readonly auditEvents: AuditLogEntry[] = [];
+  readonly checkpoints: CheckpointRecord[] = [];
+
+  private userSequence = 0;
+  private auditSequence = 0;
+  private checkpointSequence = 0;
+
+  addUser(input: NewUserInput): UserWithCredentials {
+    this.userSequence += 1;
+    const user: UserWithCredentials = {
+      id: `00000000-0000-4000-8000-${String(this.userSequence).padStart(12, '0')}`,
+      email: input.email.trim().toLowerCase(),
+      displayName: input.displayName ?? null,
+      role: input.role ?? 'viewer',
+      isActive: input.isActive ?? true,
+      passwordHash: input.passwordHash,
+      failedLoginCount: input.failedLoginCount ?? 0,
+      lockedUntil: input.lockedUntil ?? null,
+      passwordChangedAt: input.passwordChangedAt ?? null,
+    };
+    this.users.set(user.id, user);
+    return user;
+  }
+
+  setActive(userId: string, isActive: boolean): void {
+    const user = this.users.get(userId);
+    if (user) user.isActive = isActive;
+  }
+
+  setPasswordChangedAt(userId: string, changedAt: Date): void {
+    const user = this.users.get(userId);
+    if (user) user.passwordChangedAt = changedAt;
+  }
+
+  sessionsFor(userId: string): StoredSession[] {
+    return [...this.sessions.values()].filter((session) => session.userId === userId);
+  }
+
+  firstSession(): StoredSession {
+    const session = [...this.sessions.values()][0];
+    if (!session) throw new Error('Expected at least one session in the store');
+    return session;
+  }
+
+  async findUserByEmail(email: string): Promise<UserWithCredentials | null> {
+    const normalized = email.trim().toLowerCase();
+    for (const user of this.users.values()) {
+      if (user.email === normalized) return { ...user };
+    }
+    return null;
+  }
+
+  async findUserById(id: string): Promise<UserWithCredentials | null> {
+    const user = this.users.get(id);
+    return user ? { ...user } : null;
+  }
+
+  async setUserActive(userId: string, isActive: boolean): Promise<boolean> {
+    const user = this.users.get(userId);
+    if (!user) return false;
+    user.isActive = isActive;
+    if (!isActive) {
+      const now = new Date();
+      for (const session of this.sessions.values()) {
+        if (session.userId === userId && session.revokedAt === null) {
+          session.revokedAt = now;
+        }
+      }
+    }
+    return true;
+  }
+
+  async findSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null> {
+    for (const session of this.sessions.values()) {
+      if (session.tokenHash !== tokenHash) continue;
+      const user = this.users.get(session.userId);
+      if (!user) return null;
+      return {
+        id: session.id,
+        tokenHash: session.tokenHash,
+        csrfToken: session.csrfToken,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+        lastSeenAt: session.lastSeenAt,
+        revokedAt: session.revokedAt,
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          role: user.role,
+          isActive: user.isActive,
+          passwordChangedAt: user.passwordChangedAt,
+        },
+      };
+    }
+    return null;
+  }
+
+  async createSession(input: CreateSessionInput): Promise<void> {
+    this.sessions.set(input.id, {
+      id: input.id,
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      csrfToken: input.csrfToken,
+      createdAt: input.createdAt,
+      expiresAt: input.expiresAt,
+      lastSeenAt: input.createdAt,
+      revokedAt: null,
+    });
+  }
+
+  async touchSession(sessionId: string, seenAt: Date): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session && session.revokedAt === null) session.lastSeenAt = seenAt;
+  }
+
+  async revokeSession(sessionId: string, revokedAt: Date): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session && session.revokedAt === null) session.revokedAt = revokedAt;
+  }
+
+  async revokeUserSessions(
+    userId: string,
+    revokedAt: Date,
+    exceptSessionId?: string,
+  ): Promise<void> {
+    for (const session of this.sessions.values()) {
+      if (session.userId !== userId) continue;
+      if (exceptSessionId !== undefined && session.id === exceptSessionId) continue;
+      if (session.revokedAt === null) session.revokedAt = revokedAt;
+    }
+  }
+
+  async recordLoginFailure(
+    userId: string,
+    params: { now: Date; maxAttempts: number; lockMinutes: number },
+  ): Promise<void> {
+    const user = this.users.get(userId);
+    if (!user) return;
+    user.failedLoginCount += 1;
+    if (user.failedLoginCount >= params.maxAttempts) {
+      user.lockedUntil = new Date(params.now.getTime() + params.lockMinutes * 60_000);
+    }
+  }
+
+  async recordLoginSuccess(userId: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (!user) return;
+    user.failedLoginCount = 0;
+    user.lockedUntil = null;
+  }
+
+  async getLatestAuditHash(): Promise<string | null> {
+    const last = this.auditEvents[this.auditEvents.length - 1];
+    return last?.entryHash ?? null;
+  }
+
+  async recordAudit(event: AuditEventInput): Promise<AuditLogEntry> {
+    this.auditSequence += 1;
+    const now = event.createdAt ?? new Date();
+    const prevHash = event.prevHash ?? (await this.getLatestAuditHash()) ?? GENESIS_HASH;
+
+    const entryHash =
+      event.entryHash ??
+      computeEntryHash({
+        prevHash,
+        userId: event.userId,
+        targetUserId: event.targetUserId ?? null,
+        action: event.action,
+        outcome: event.outcome,
+        resourceType: event.resourceType ?? null,
+        resourceId: event.resourceId ?? null,
+        requestId: event.requestId ?? null,
+        createdAt: now,
+        metadata: event.metadata ?? null,
+      });
+
+    const entry: AuditLogEntry = {
+      id: String(this.auditSequence),
+      userId: event.userId,
+      targetUserId: event.targetUserId ?? null,
+      action: event.action,
+      outcome: event.outcome,
+      resourceType: event.resourceType ?? null,
+      resourceId: event.resourceId ?? null,
+      ipHash: event.ipHash ?? null,
+      userAgent: event.userAgent ?? null,
+      requestId: event.requestId ?? null,
+      metadata: event.metadata ?? null,
+      prevHash,
+      entryHash,
+      createdAt: now.toISOString(),
+    };
+
+    this.auditEvents.push(entry);
+    return entry;
+  }
+
+  private filterAuditEvents(
+    params?: Omit<AuditFilterParams, 'limit' | 'offset'>,
+  ): AuditLogEntry[] {
+    if (!params) return [...this.auditEvents];
+
+    return this.auditEvents.filter((event) => {
+      if (params.actor) {
+        const actorMatches =
+          event.userId === params.actor ||
+          (event.userId !== null &&
+            this.users.get(event.userId)?.email === params.actor.toLowerCase());
+        if (!actorMatches) return false;
+      }
+      if (params.documentId && event.resourceId !== params.documentId) {
+        return false;
+      }
+      if (params.action) {
+        if (params.action.endsWith('%')) {
+          const prefix = params.action.slice(0, -1);
+          if (!event.action.startsWith(prefix)) return false;
+        } else if (event.action !== params.action) {
+          return false;
+        }
+      }
+      if (params.outcome && event.outcome !== params.outcome) {
+        return false;
+      }
+      if (params.from) {
+        const fromDate = new Date(`${params.from}T00:00:00.000Z`);
+        if (new Date(event.createdAt) < fromDate) return false;
+      }
+      if (params.to) {
+        const toDate = new Date(`${params.to}T23:59:59.999Z`);
+        if (new Date(event.createdAt) > toDate) return false;
+      }
+      return true;
+    });
+  }
+
+  async listAuditLogs(params: AuditFilterParams): Promise<AuditLogEntry[]> {
+    const filtered = this.filterAuditEvents(params);
+    return [...filtered]
+      .reverse()
+      .slice(params.offset, params.offset + params.limit);
+  }
+
+  async countAuditLogs(
+    params?: Omit<AuditFilterParams, 'limit' | 'offset'>,
+  ): Promise<number> {
+    return this.filterAuditEvents(params).length;
+  }
+
+  async createCheckpoint(): Promise<CheckpointRecord | null> {
+    const last = this.auditEvents[this.auditEvents.length - 1];
+    if (!last || !last.entryHash) return null;
+
+    this.checkpointSequence += 1;
+    const count = this.auditEvents.length;
+    const checkpointHash = computeCheckpointHash({
+      checkpointSeq: this.checkpointSequence,
+      lastLogId: last.id,
+      lastEntryHash: last.entryHash,
+      entryCount: count,
+    });
+
+    const checkpoint: CheckpointRecord = {
+      id: String(this.checkpointSequence),
+      checkpointSeq: this.checkpointSequence,
+      lastLogId: last.id,
+      checkpointHash,
+      entryCount: count,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.checkpoints.push(checkpoint);
+    return checkpoint;
+  }
+
+  async listCheckpoints(): Promise<CheckpointRecord[]> {
+    return [...this.checkpoints].reverse();
+  }
+
+  async verifyAuditIntegrity(): Promise<AuditVerificationResult> {
+    let lastHash: string = GENESIS_HASH;
+
+    for (let i = 0; i < this.auditEvents.length; i++) {
+      const entry = this.auditEvents[i]!;
+
+      if (i > 0 && entry.prevHash !== lastHash) {
+        return {
+          verified: false,
+          totalEntries: this.auditEvents.length,
+          checkedCheckpoints: this.checkpoints.length,
+          lastVerifiedHash: lastHash,
+          failureReason: `Hash chain broken at event ${entry.id}: prevHash does not match previous entryHash`,
+          failedAtId: entry.id,
+        };
+      }
+
+      const expectedHash = computeEntryHash({
+        prevHash: entry.prevHash ?? lastHash,
+        userId: entry.userId,
+        targetUserId: entry.targetUserId,
+        action: entry.action,
+        outcome: entry.outcome,
+        resourceType: entry.resourceType,
+        resourceId: entry.resourceId,
+        requestId: entry.requestId,
+        createdAt: new Date(entry.createdAt),
+        metadata: entry.metadata,
+      });
+
+      if (entry.entryHash !== expectedHash) {
+        return {
+          verified: false,
+          totalEntries: this.auditEvents.length,
+          checkedCheckpoints: this.checkpoints.length,
+          lastVerifiedHash: lastHash,
+          failureReason: `Tampered log content at event ${entry.id}: entryHash does not match canonical payload digest`,
+          failedAtId: entry.id,
+        };
+      }
+
+      lastHash = entry.entryHash;
+    }
+
+    // Verify checkpoints against chain
+    for (const cp of this.checkpoints) {
+      const targetEntry = this.auditEvents.find((e) => e.id === cp.lastLogId);
+      if (!targetEntry || !targetEntry.entryHash) {
+        return {
+          verified: false,
+          totalEntries: this.auditEvents.length,
+          checkedCheckpoints: this.checkpoints.length,
+          lastVerifiedHash: lastHash,
+          failureReason: `Checkpoint ${cp.checkpointSeq} references non-existent or unhashed log entry ${cp.lastLogId}`,
+          failedAtId: cp.lastLogId,
+        };
+      }
+      const expectedCpHash = computeCheckpointHash({
+        checkpointSeq: cp.checkpointSeq,
+        lastLogId: cp.lastLogId,
+        lastEntryHash: targetEntry.entryHash,
+        entryCount: cp.entryCount,
+      });
+      if (cp.checkpointHash !== expectedCpHash) {
+        return {
+          verified: false,
+          totalEntries: this.auditEvents.length,
+          checkedCheckpoints: this.checkpoints.length,
+          lastVerifiedHash: lastHash,
+          failureReason: `Checkpoint ${cp.checkpointSeq} hash mismatch`,
+        };
+      }
+    }
+
+    return {
+      verified: true,
+      totalEntries: this.auditEvents.length,
+      checkedCheckpoints: this.checkpoints.length,
+      lastVerifiedHash: this.auditEvents.length > 0 ? lastHash : null,
+    };
+  }
+
+  /**
+   * Simulates the database BEFORE UPDATE trigger rejecting modification.
+   */
+  async attemptUpdateAudit(_id: string, _patch: unknown): Promise<never> {
+    throw new Error('Audit log records are immutable and cannot be updated');
+  }
+
+  /**
+   * Simulates the database BEFORE DELETE trigger rejecting deletion.
+   */
+  async attemptDeleteAudit(_id: string): Promise<never> {
+    throw new Error('Audit log records are immutable and cannot be deleted');
+  }
+
+  /**
+   * Test helper to simulate attacker tampering with an in-memory record
+   * to prove that verifyAuditIntegrity accurately detects unauthorized mutations.
+   */
+  simulateTamper(id: string, patch: Partial<AuditLogEntry>): void {
+    const entry = this.auditEvents.find((e) => e.id === id);
+    if (entry) Object.assign(entry, patch);
+  }
+
+  /**
+   * Convenience helper for tests that need to seed audit events directly
+   * without going through the full HTTP stack.
+   */
+  addTestAuditEvent(input: {
+    userId?: string | null;
+    action: string;
+    outcome: 'success' | 'failure' | 'denied';
+    resourceType?: string | null;
+    resourceId?: string | null;
+  }): void {
+    void this.recordAudit({
+      userId: input.userId ?? null,
+      action: input.action,
+      outcome: input.outcome,
+      resourceType: input.resourceType ?? null,
+      resourceId: input.resourceId ?? null,
+    });
+  }
+}
