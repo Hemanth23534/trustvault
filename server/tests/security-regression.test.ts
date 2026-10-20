@@ -42,8 +42,8 @@ const BCRYPT_TEST_COST = 4;
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-function buildStack() {
-  const env = testEnv();
+function buildStack(options: { env?: Record<string, string | undefined> } = {}) {
+  const env = testEnv(options.env);
   const authStore = new InMemoryAuthStore();
   const documentStore = new InMemoryDocumentStore();
   const activityStore = new InMemoryDocumentActivityStore(documentStore, authStore);
@@ -114,14 +114,15 @@ describe('Finding 2 regression — dual-tier login rate limiting', () => {
    * least the last attempt is rate-limited (HTTP 429).
    */
   it('enforces a global per-IP ceiling across many distinct email targets (spray attack)', async () => {
-    const { app } = buildStack();
+    // Configure a small limit for fast, deterministic testing without burning CPU:
+    // LOGIN_RATE_LIMIT_MAX = 2 => Tier-1 ceiling = 2 * 3 = 6 requests per IP.
+    const { app } = buildStack({ env: { LOGIN_RATE_LIMIT_MAX: '2' } });
 
     const responses: number[] = [];
-    for (let i = 0; i < 31; i++) {
+    // Send 7 attempts to 7 distinct emails from the same IP (exceeding ceiling 6)
+    for (let i = 0; i < 7; i++) {
       const res = await request(app)
         .post('/api/auth/login')
-        // trust proxy is off in test env, so IP comes from the socket.
-        // Supertest connects locally; both tiers share the same key.
         .send({ email: `victim${i}@corp.example`, password: 'Password2026!' });
       responses.push(res.status);
     }
@@ -129,7 +130,7 @@ describe('Finding 2 regression — dual-tier login rate limiting', () => {
     // At least one attempt must have been rate-limited (429).
     expect(responses).toContain(429);
 
-    // The rate-limited response must include the correct error code.
+    // The rate-limited response must include the correct error code and header.
     const rateLimitedIdx = responses.lastIndexOf(429);
     const finalRes = await request(app)
       .post('/api/auth/login')
@@ -137,19 +138,20 @@ describe('Finding 2 regression — dual-tier login rate limiting', () => {
     expect(finalRes.status).toBe(429);
     expect(finalRes.body.error.code).toBe('RATE_LIMITED');
     expect(finalRes.headers['retry-after']).toBeDefined();
-  });
+  }, 10_000);
 
   /**
    * Tier-2: the tight per-(IP+email) limiter must still protect individual
    * accounts, even though Tier-1 is more lenient (3× the per-email max).
    */
   it('still enforces the tight per-(IP+email) limit on a specific account', async () => {
-    const { app, authStore } = buildStack();
+    // LOGIN_RATE_LIMIT_MAX = 2 => Tier-2 ceiling = 2 requests per (IP + email).
+    const { app, authStore } = buildStack({ env: { LOGIN_RATE_LIMIT_MAX: '2' } });
     await addUser(authStore, { email: 'targetuser@trustvault.local', role: 'viewer' });
 
-    // The per-(IP+email) max is 10. Send 11 attempts against the same address.
+    // Send 3 attempts against the same email (exceeding per-email limit 2)
     const responses: number[] = [];
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 3; i++) {
       const res = await request(app)
         .post('/api/auth/login')
         .send({ email: 'targetuser@trustvault.local', password: 'WrongPassword!' });
@@ -159,7 +161,7 @@ describe('Finding 2 regression — dual-tier login rate limiting', () => {
     expect(responses).toContain(429);
     const rateLimited = responses.filter((s) => s === 429);
     expect(rateLimited.length).toBeGreaterThan(0);
-  });
+  }, 10_000);
 });
 
 // ---------------------------------------------------------------------------

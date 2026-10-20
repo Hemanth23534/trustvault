@@ -196,12 +196,307 @@ curl.exe -i http://localhost:4000/api/nope
 
 ## Not implemented yet
 
-| Planned (day) | Endpoint |
-|---------------|----------|
-| Day 2 | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` |
-| Day 3 | `POST /api/documents`, `GET /api/documents`, `GET /api/documents/:id/download`, `POST /api/documents/:id/shares` |
-| Day 4 | `GET /api/audit`, `DELETE /api/shares/:id` |
-| Day 5 | none — hardening, deployment, demo |
+---
+
+# Sharing & Permissions (Day 4)
+
+Document-level authorization. Access is denied by default.
+Permission model:
+- **Owner**: Full control (upload, read, download, edit metadata, soft delete, grant/revoke permissions).
+- **Editor**: Granted by owner. Can view, download, and edit metadata. Cannot delete or manage permissions.
+- **Viewer**: Granted by owner. Can view and download. Cannot edit or delete.
+- **Admin**: System governance only. **Does NOT have automatic access to read or download document contents.**
+
+## `GET /api/documents/stats`
+
+Returns aggregated document statistics for the authenticated user.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| Allowed Roles | `owner`, `viewer`, `admin` |
+| Scope | Documents owned by user OR explicitly granted to user |
+
+`200`:
+```json
+{
+  "stats": {
+    "totalDocuments": 5,
+    "totalBytes": 1048576,
+    "ownedCount": 3,
+    "sharedCount": 2,
+    "byCategory": [
+      { "category": "contract", "count": 2 },
+      { "category": "report", "count": 3 }
+    ]
+  }
+}
+```
+
+## `GET /api/documents/:id/permissions`
+
+Lists all user permission grants on a specific document.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| Required Role | Document Owner only (`d.owner_id = user.id`) |
+| Non-owner Behavior | `404 DOCUMENT_NOT_FOUND` (stranger) or `403 DOCUMENT_FORBIDDEN` (viewer/editor) |
+
+`200`:
+```json
+{
+  "permissions": [
+    {
+      "userId": "usr_viewer_01",
+      "email": "viewer@trustvault.local",
+      "displayName": "Vera Viewer",
+      "role": "viewer",
+      "grantedBy": { "id": "usr_owner_01", "email": "owner@trustvault.local" },
+      "createdAt": "2026-10-20T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+## `POST /api/documents/:id/permissions`
+
+Grant or update a user's permission role on a document. Immediately enforced on subsequent requests.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| CSRF | Required (`X-CSRF-Token` header) |
+| Required Role | Document Owner only |
+| Permitted Roles to Grant | `owner` (co-owner), `editor`, `viewer` |
+
+Request Body:
+```json
+{
+  "email": "colleague@trustvault.local",
+  "role": "viewer"
+}
+```
+
+| Status | Code | When |
+|--------|------|------|
+| 200 | (Success) | Permission granted/updated; returns updated permissions list |
+| 403 | `DOCUMENT_FORBIDDEN` | Caller is not the document owner |
+| 404 | `USER_NOT_FOUND` | Target email does not exist |
+| 422 | `INVALID_GRANT` | Target user is already the document owner |
+| 422 | `USER_INACTIVE` | Target user account is deactivated |
+
+## `DELETE /api/documents/:id/permissions/:userId`
+
+Revokes a user's permission on a document. Takes effect immediately—the user's next request to view, edit, or download will fail with `404 DOCUMENT_NOT_FOUND`.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| CSRF | Required (`X-CSRF-Token` header) |
+| Required Role | Document Owner only |
+
+| Status | Code | When |
+|--------|------|------|
+| 200 | (Success) | Permission revoked; returns updated permissions list |
+| 403 | `DOCUMENT_FORBIDDEN` | Caller is not document owner |
+| 404 | `PERMISSION_NOT_FOUND` | Target user had no grant on this document |
+| 422 | `INVALID_REVOKE` | Cannot revoke the document owner's access |
+
+## `GET /api/documents/:id/access-history`
+
+Paginated audit history of all access and permission events for a single document.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| Required Role | Document Owner only |
+
+Query Parameters: `limit` (default 25), `offset` (default 0).
+
+`200`:
+```json
+{
+  "entries": [
+    {
+      "id": "104",
+      "action": "document.downloaded",
+      "outcome": "success",
+      "actorId": "usr_viewer_01",
+      "actorEmail": "viewer@trustvault.local",
+      "documentId": "doc_01",
+      "documentTitle": "Confidential NDA",
+      "metadata": { "sizeBytes": 1024 },
+      "createdAt": "2026-10-20T11:00:00.000Z"
+    }
+  ],
+  "pagination": { "limit": 25, "offset": 0, "total": 1 }
+}
+```
+
+## `GET /api/access-history`
+
+Cross-document access history for all documents the authenticated user manages or owns.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| Required Role | `owner` or `admin` |
+| Title Redaction | Non-permitted document titles are masked as `[Restricted]` for `admin` |
+
+---
+
+# Administration & Audit Integrity (Day 5)
+
+Administrative endpoints provide platform governance, tamper-evident audit inspection, and user lifecycle control without granting document content read access.
+
+## `GET /api/admin/overview`
+
+System-wide operational metrics and activity counters.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| Required Role | `admin` only (`403 FORBIDDEN` for owner/viewer) |
+
+`200`:
+```json
+{
+  "overview": {
+    "users": 12,
+    "activeUsers": 11,
+    "documents": 48,
+    "deletedDocuments": 3,
+    "totalBytes": 15420912,
+    "activeSessions": 6,
+    "auditEvents": 342,
+    "grants": 18
+  }
+}
+```
+
+## `GET /api/admin/users`
+
+Directory listing of all user accounts with account status and document ownership counts.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| Required Role | `admin` only |
+
+## `PATCH /api/admin/users/:id/status`
+
+Activate or deactivate a user account. Deactivation immediately invalidates all active sessions for that user.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| CSRF | Required (`X-CSRF-Token` header) |
+| Required Role | `admin` only |
+
+Request Body:
+```json
+{ "isActive": false }
+```
+
+| Status | Code | When |
+|--------|------|------|
+| 200 | (Success) | Status updated; target sessions revoked |
+| 404 | `USER_NOT_FOUND` | Account does not exist |
+| 422 | `CANNOT_DEACTIVATE_SELF` | Admin cannot deactivate their own account |
+
+## `GET /api/admin/audit-logs`
+
+Search and filter tamper-evident audit logs.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| Required Role | `admin` only |
+
+Query Parameters:
+- `actor`: Filter by actor User ID or email address
+- `documentId`: Filter by target document UUID
+- `action`: Filter by action prefix (e.g., `document.%`, `login%`)
+- `outcome`: `success`, `failure`, or `denied`
+- `from`, `to`: Date bounds (`YYYY-MM-DD`)
+- `limit` (default 25), `offset` (default 0)
+
+`200`:
+```json
+{
+  "entries": [
+    {
+      "id": "210",
+      "userId": "usr_viewer_01",
+      "targetUserId": null,
+      "action": "document.download_denied",
+      "outcome": "denied",
+      "resourceType": "document",
+      "resourceId": "doc_01",
+      "ipHash": "a1b2c3d4...",
+      "userAgent": "Mozilla/5.0 ...",
+      "requestId": "req_12345678",
+      "metadata": { "reason": "DOCUMENT_NOT_FOUND" },
+      "prevHash": "3f4e5a...",
+      "entryHash": "9b8c7d...",
+      "createdAt": "2026-10-20T12:00:00.000Z"
+    }
+  ],
+  "pagination": { "limit": 25, "offset": 0, "total": 1 }
+}
+```
+
+## `GET /api/admin/audit-logs/verify`
+
+Verifies the cryptographic SHA-256 hash chain and checkpoint integrity from genesis.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| Required Role | `admin` only |
+
+`200`:
+```json
+{
+  "verified": true,
+  "totalEntries": 210,
+  "checkedCheckpoints": 4,
+  "lastVerifiedHash": "9b8c7d6e..."
+}
+```
+
+If tampered or spliced:
+```json
+{
+  "verified": false,
+  "totalEntries": 210,
+  "checkedCheckpoints": 4,
+  "lastVerifiedHash": "3f4e5a...",
+  "failureReason": "Hash chain broken at event 185: prevHash does not match previous entryHash",
+  "failedAtId": "185"
+}
+```
+
+## `POST /api/admin/audit-logs/checkpoint`
+
+Anchors a new cryptographic checkpoint committing to `(checkpointSeq, lastLogId, lastEntryHash, entryCount)`.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| CSRF | Required (`X-CSRF-Token` header) |
+| Required Role | `admin` only |
+
+## `GET /api/admin/audit-logs/checkpoints`
+
+Lists all historical cryptographic checkpoints in reverse chronological order.
+
+| Property | Value |
+|----------|-------|
+| Auth | Session (`HttpOnly` cookie) |
+| Required Role | `admin` only |
+
 
 ---
 

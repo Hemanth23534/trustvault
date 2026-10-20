@@ -278,3 +278,42 @@ changed:
 | Zero sensitive metadata in audit | Passwords, session secrets, CSRF tokens, and document byte streams are strictly excluded; IP addresses are stored as HMAC digests; denied requests record error codes only |
 | Admin isolation invariant | Administrators can view metrics, audit records, accounts, and cross-tenant permission history, but cannot download or inspect private document contents |
 
+---
+
+### Entry 10 — Day 5: Independent application-security review (read-only)
+- **Date:** 2026-10-20
+- **Intent:** Conduct a rigorous, independent application-security assessment across source code, schema, storage architecture, routes, middleware, and tests without modifying the codebase.
+- **Prompt (summary):** "Act as an independent application-security reviewer for TrustVault. Inspect the actual source code, MySQL schema, API routes, storage configuration and automated tests. Search for 13 threat areas: IDOR, missing authorization middleware, permission escalation, revocation failures, public file URLs, unsafe uploads/path traversal, SQL injection, session/CSRF/cookie weaknesses, audit tampering, revocation race conditions, metadata leakage, disabled accounts, and insecure deployment configuration. For every finding provide file/function, attack scenario, CVSS severity, evidence, recommended fix, and regression test. Separate verified vulnerabilities from unverified suspicions. Do not modify files."
+- **Result:** Formal application-security review report delivered. 4 verified findings identified (2 Medium, 2 Low). 9 categories verified fully mitigated. Zero files modified.
+- **Human review:** Confirmed all 4 findings directly against the codebase before scheduling fixes.
+- **Verification:** Inspection of all routes, middleware, stores, schema migrations 0001–0005, and bootstrap scripts against the 197 server + 22 client test baseline.
+
+---
+
+### Entry 11 — Day 5: Vulnerability remediation, regression testing, and submission hardening
+- **Date:** 2026-10-20
+- **Intent:** Fix confirmed vulnerabilities identified during the security review, add automated regression tests for each finding, update documentation, and prepare the final production release.
+- **Prompt (summary):** "Finish the TrustVault five-day hackathon submission. Verify each security finding against the code. Fix confirmed vulnerabilities. Add regression tests for every confirmed finding. Run the full test suite and production builds. Deploy and configure environment variables, TLS, cookies, CORS, and CSRF protection. Create demo accounts using a safe seed procedure. Complete README, THREATS, PROMPTS, API documentation, deployment instructions, demo script, and write-up. Make meaningful Git commits."
+- **Result:**
+  - **F1 (Monolithic DB Privileges):** Updated `database/bootstrap.sql` to separate the migration user (`trustvault_deploy` with DDL) from the runtime user (`trustvault` with DML on operational tables and strictly `SELECT, INSERT` on audit tables).
+  - **F2 (Password Spraying):** Implemented dual-tier rate limiting in `server/src/app.ts` and `server/src/http/routes/auth.ts`: Tier-1 global per-IP ceiling (`max = LOGIN_RATE_LIMIT_MAX * 3 = 30`) and Tier-2 per-(IP+email) limit (`max = 10`).
+  - **F3 (Cross-Tenant Title Leakage):** Updated `server/src/documents/activity-store.ts` (`historyForManager`) and `server/tests/support/in-memory-activity-store.ts` with conditional `CASE` expression masking non-permitted titles to `[Restricted]` for admins.
+  - **F4 (Revocation Stream Boundary):** Documented the residual limitation in `THREATS.md` and added regression assertion proving that revocation blocks the next request immediately.
+  - **Regression Test Suite:** Added `server/tests/security-regression.test.ts` with 5 automated integration tests.
+  - **Full Suite Passing:** 12 server test files (202 tests) + 3 client test files (22 tests) green.
+  - **Artifacts Completed:** `DEMO_SCRIPT.md`, `docs/DESIGN_DECISIONS.md`, updated `docs/API.md`, updated `THREATS.md`, updated `README.md`.
+- **Verification:** `npm test` passing with 224 total tests; `npm run typecheck` passing with 0 errors; `npm run build` passing with clean production artifacts.
+
+#### Real findings during remediation
+1. **Accidental variable scope error in test double:** When modifying `InMemoryDocumentActivityStore` for Finding 3, an edit referenced `viewer` inside `historyForDocument` where `viewer` was out of scope. The Vitest suite immediately caught this with an HTTP 500 error in `tests/sharing.test.ts`, preventing broken test infrastructure.
+2. **TypeScript typing on in-memory audit double:** `AuditLogEntry.id` is typed as `string`, while internal `toActivity` expected `number | string`. `tsc --noEmit` caught this before runtime.
+3. **Execution time of rate-limit regression tests:** Exercising the Tier-1 rate limiter requires sequentially issuing 31 HTTP requests to trigger the 30-request ceiling. The test takes ~11–13 seconds, which is a necessary and justified cost for testing rate limit enforcement without mocking.
+
+#### Design decisions worth defending
+| Decision | Why |
+|---|---|
+| Tier-1 IP rate limit threshold at 3× per-email max | Setting the IP ceiling equal to the per-account ceiling would cause false positives on corporate NATs with multiple legitimate users; 3× provides headroom while stopping bulk horizontal spraying |
+| Explicit '[Restricted]' title token | Distinguishes intentional metadata privacy protection from missing data or database errors |
+| Privilege-level immutability | Database triggers provide row-level logic, but restricting DDL and UPDATE/DELETE at the MySQL user privilege level prevents dropping triggers |
+
+

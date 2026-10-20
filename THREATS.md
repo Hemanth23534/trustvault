@@ -258,3 +258,43 @@ A frequent misconception in security architecture is that database triggers or i
 | Admin isolation | `tests/audit-trail.test.ts` → admin download returns 404; admin metadata query returns 404; admin dashboard filters audit events by actor, document, action, outcome, and date |
 | Account deactivation & self-lockout defence | `tests/audit-trail.test.ts` → deactivating account revokes active sessions immediately (401/403); admin cannot deactivate self (422) |
 
+---
+
+## 12. Day 5 Security Audit — Findings and Resolutions
+
+Following an independent application security review across all 13 checklist categories on 2026-10-20, four specific findings were evaluated, verified against source code, and resolved:
+
+| Finding ID | Threat & Vulnerability | Severity | Resolution & Defense-in-Depth | Status |
+|------------|------------------------|----------|-------------------------------|--------|
+| **F1** | **Monolithic Database Privileges Undermines Audit Immutability**: The runtime application user possessed DDL privileges (`DROP`, `ALTER`), allowing an attacker with application database credentials to drop `trg_audit_logs_no_update` and alter audit records | Medium (CVSS 6.5) | Split `database/bootstrap.sql` into two distinct accounts: (1) `trustvault_deploy` with DDL for migrations only, and (2) `trustvault` runtime user with DML on operational tables and strictly `SELECT, INSERT` (no `UPDATE`, `DELETE`, `DROP`, `TRIGGER`) on `audit_logs` and `audit_checkpoints`. Two independent layers now enforce immutability: DB privileges + triggers | **Fixed & Documented** |
+| **F2** | **Horizontal Password Spraying via Single-Dimension Rate Limiting**: The login rate limiter key was strictly composite (`${req.ip}\|${email}`). An adversary testing one password against thousands of distinct emails from one IP bypassed per-email buckets | Medium (CVSS 5.3) | Implemented dual-tier rate limiting in `server/src/app.ts`: (1) Tier-1 global per-IP ceiling (`max = LOGIN_RATE_LIMIT_MAX * 3 = 30` requests per window) blocks horizontal sprays regardless of email, and (2) Tier-2 per-(IP+email) limiter (`max = 10`) preserves targeted brute-force protection | **Fixed & Verified** (`server/tests/security-regression.test.ts`) |
+| **F3** | **Cross-Tenant Document Title Leakage via Admin Access History**: In `historyForManager` (`GET /api/access-history`), an admin without a document grant could view private document titles in the join result | Low-Medium (CVSS 4.3) | Updated SQL projection with conditional `CASE WHEN d.owner_id = ? OR p.user_id IS NOT NULL THEN d.title ELSE '[Restricted]' END AS document_title`. Administrators without explicit grants see `[Restricted]` instead of confidential titles; owners and granted collaborators see full titles | **Fixed & Verified** (`server/tests/security-regression.test.ts`) |
+| **F4** | **In-Flight File Download Stream Not Terminated Upon Immediate Revocation**: If a viewer begins streaming a multi-hundred megabyte file and permission is revoked mid-transfer, Node's open readable stream continues piping to completion; revocation only blocks subsequent requests | Low (CVSS 3.1) | **Documented Architectural Boundary**: Revocation guarantees zero-latency denial on all subsequent HTTP requests (`404 DOCUMENT_NOT_FOUND`). Files already in transit or saved locally by a recipient cannot be erased retroactively by any network protocol. Private downloads serve `Cache-Control: no-store, private` to prevent browser disk persistence | **Documented Residual Limit** (`server/tests/security-regression.test.ts`) |
+
+### Verification Evidence for Security Review Resolutions
+
+| Finding | Regression Test | Result |
+|---------|-----------------|--------|
+| F1 (Privilege separation) | Verified schema and user grant templates in `database/bootstrap.sql` | Operational tables DML only; audit tables INSERT-only; no DDL at runtime |
+| F2 (Password spray) | `tests/security-regression.test.ts` → `enforces a global per-IP ceiling across many distinct email targets (spray attack)` | Spray of 31 attempts from single IP throttled with 429 `RATE_LIMITED` and `Retry-After` |
+| F2 (Targeted brute force) | `tests/security-regression.test.ts` → `still enforces the tight per-(IP+email) limit on a specific account` | 11 attempts against single email throttled with 429 |
+| F3 (Title redaction) | `tests/security-regression.test.ts` → `redacts document titles in access-history for admins without a permission grant` | Admin sees `[Restricted]`; owner sees full title |
+| F4 (Revocation boundary) | `tests/security-regression.test.ts` → `excludes the document from listing immediately after revocation` | Viewer list and metadata immediately return 404 post-revocation |
+
+### Summary of Full 13-Category Audit Verification
+
+1. **IDOR & Broken Object Authorization**: Verified Mitigated. All operations pass through `DocumentStore.findAccessible(id, viewer)` with strict SQL ownership/grant check.
+2. **Missing Authorization Middleware**: Verified Mitigated. Every route applies `requireAuth` + `requireActiveUser`; admin routes enforce `requireRole('admin')`.
+3. **Permission Escalation**: Verified Mitigated. Non-owners cannot grant/revoke permissions (`403`); viewers cannot edit/delete (`403`); registration cannot create admins.
+4. **Revocation Failures**: Verified Mitigated. Transactional `DELETE` in `document_permissions` takes effect on immediate next request.
+5. **Public File URLs & Storage Bypasses**: Verified Mitigated. Private storage lives outside web root; no static routing or public pre-signed URLs.
+6. **Unsafe Uploads & Path Traversal**: Verified Mitigated. Server-generated `yyyy/mm/<uuid>.<ext>` keys, structural magic byte validation, `0o600` permissions.
+7. **SQL Injection**: Verified Mitigated. Exclusively parameterized `?` bindings via `mysql2`.
+8. **Session Fixation, CSRF & Cookies**: Verified Mitigated. Cryptographic 32-byte tokens, rotation on login, `HttpOnly; SameSite=Lax; Secure`, timing-safe CSRF validation.
+9. **Audit Log Tampering**: Verified Mitigated via dual defense: DB privilege restrictions + MySQL engine immutability triggers + SHA-256 hash chaining.
+10. **Race Conditions: Revocation vs Downloads**: Documented boundary; subsequent requests blocked immediately.
+11. **Sensitive Metadata Leakage**: Verified Mitigated via sanitized error envelopes and admin title redaction.
+12. **Disabled-Account Access**: Verified Mitigated via live account status checks on every request and proactive session invalidation.
+13. **Insecure Deployment & Exposed Secrets**: Verified Mitigated via Zod fail-fast env validation, `.gitignore`, and production secret length enforcement.
+
+

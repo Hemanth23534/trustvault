@@ -4,13 +4,14 @@
 server-side sessions, and share links that expire — built in five days for the
 Snovasys hackathon.
 
-> **Day 1 of 5 — foundation is complete.** The API boots, talks to MySQL through
-> a migration-managed schema, and exposes health checks that the React client
-> renders live. Authentication, uploads and sharing are intentionally **not**
-> built yet: they land on days 2–4 with the guardrails already in place.
+> **Day 5 of 5 — production-ready submission complete.** All five phases are delivered:
+> React 19 SPA, Express 5 API, MySQL 8 schema with 5 forward-only migrations,
+> document-level permissions with instant revocation, tamper-evident hash-chained
+> audit logs, administrative governance, and an independent application security review
+> with confirmed fixes and regression tests.
 
 ![stack](https://img.shields.io/badge/stack-Node%2022%20%C2%B7%20Express%205%20%C2%B7%20React%2019%20%C2%B7%20MySQL%208-0b1220)
-![tests](https://img.shields.io/badge/tests-Vitest%20%2B%20Supertest-0b1220)
+![tests](https://img.shields.io/badge/tests-224%20passed%20(15%20suites)-0b1220)
 
 ---
 
@@ -18,35 +19,44 @@ Snovasys hackathon.
 
 | Area | Status |
 |------|--------|
-| React 19 + TypeScript + Vite client | ✅ live health dashboard |
-| Express 5 + TypeScript API | ✅ health + database health |
+| React 19 + TypeScript + Vite client | ✅ 9 pages (login, dashboards, detail, share, audit, history) |
+| Express 5 + TypeScript API | ✅ health, auth, documents, permissions, insights, admin |
 | Validated environment (Zod, fail-fast) | ✅ rejects placeholder secrets in production |
 | MySQL 8 connection pool (`mysql2`) | ✅ UTC, named placeholders, no stacked queries |
-| Forward-only migration runner | ✅ checksums, advisory lock, dry-run, status |
-| Helmet, CORS allow-list, request IDs | ✅ tested |
-| Centralised error handling | ✅ no stack/SQL leakage in production |
-| Private storage directory | ✅ absolute path, `0700`, traversal guard |
-| Auth (bcrypt + MySQL sessions) | ⏳ Day 2 — schema and cookie config are ready |
-| Documents, share links, audit log | ⏳ Days 3–4 |
-| Deployment + backup drill | ⏳ Day 5 |
+| Forward-only migration runner | ✅ 5 migrations, checksums, advisory lock, dry-run |
+| Helmet, CORS allow-list, request IDs | ✅ tested across all endpoints |
+| Centralised error handling | ✅ sanitized JSON envelope, zero stack/SQL leakage |
+| Private storage directory | ✅ outside web root, mode `0700`/`0600`, magic byte check |
+| Auth (bcrypt + MySQL sessions) | ✅ HttpOnly/SameSite/Secure, CSRF, dual-tier rate limiting |
+| Document permissions & sharing | ✅ owner/editor/viewer, immediate revocation, admin isolation |
+| Tamper-evident audit trail & admin | ✅ SHA-256 hash chaining, DB triggers, admin dashboard |
+| Independent security review & fixes | ✅ 13 categories evaluated, 3 fixed, 1 documented residual |
 
-See **[THREATS.md](THREATS.md)** for the threat model and
-**[PROMPTS.md](PROMPTS.md)** for the AI-assistance log.
+See **[THREATS.md](THREATS.md)** for the threat model,
+**[PROMPTS.md](PROMPTS.md)** for the AI-assistance log, and
+**[DEMO_SCRIPT.md](DEMO_SCRIPT.md)** for the 5-minute hackathon presentation.
 
 ---
 
 ## Verified on this machine
 
-Everything below was executed, not assumed
+Everything below was executed and verified locally
 (Node 22.13.0, npm 10.9.2, MySQL 8.0.46, Windows 11).
 
 | Check | Command | Result |
 |-------|---------|--------|
-| Server type check | `npm run typecheck --workspace @trustvault/server` | ✅ no errors |
-| Client type check | `npm run typecheck --workspace @trustvault/client` | ✅ no errors |
-| Server tests | `npm run test:server` | ✅ 5 files, **83 tests passed** |
-| Client tests | `npm run test:client` | ✅ 1 file, **6 tests passed** |
-| Production build | `npm run build` | ✅ `server/dist` (tsc) + `client/dist` (234 kB JS / 9.2 kB CSS) |
+| Server type check | `npm run typecheck --workspace @trustvault/server` | ✅ 0 errors |
+| Client type check | `npm run typecheck --workspace @trustvault/client` | ✅ 0 errors |
+| Server tests | `npm run test:server` | ✅ 12 files, **202 tests passed** |
+| Client tests | `npm run test:client` | ✅ 3 files, **22 tests passed** |
+| Total automated test count | `npm test` | ✅ 15 files, **224 tests passed** |
+| Production build | `npm run build` | ✅ `server/dist` (tsc) + `client/dist` (Vite, 335.8 kB JS / 23.4 kB CSS) |
+| Security regression suite | `npx vitest run tests/security-regression.test.ts` | ✅ 5 tests passed (spray throttling, title redaction, revocation) |
+| Liveness | `GET /api/health` | ✅ 200 + Helmet headers, `X-Request-Id`, `no-store` |
+| Readiness (DB probe) | `GET /api/health/database` | ✅ 200 / 503 sanitized driver codes |
+| CORS allow/deny | `Origin: http://localhost:5173` vs untrusted | ✅ allow-list echoed vs 403 `ORIGIN_NOT_ALLOWED` |
+| Error envelope | `GET /api/nope` | ✅ 404 JSON envelope with correlation `requestId` |
+| Secret audit | `git ls-files` + staged grep | ✅ `.env` untracked, zero secrets in commits |
 | Migration on real MySQL | `migrate up` against MySQL 8.0.46 | ✅ `Applied 0001_foundation (2 statement(s), 122 ms)` |
 | Migration idempotency | second `migrate up` | ✅ `No pending migrations.` |
 | Migration status | `migrate status` | ✅ `1 applied, 0 pending, 0 drifted, 0 missing` |
@@ -408,10 +418,10 @@ surface. Local development uses same-site `Lax`.
 | Day | Theme | Deliverable |
 |-----|-------|-------------|
 | 1 | Foundation | ✅ monorepo, config, pool, migrations, health checks, tests |
-| 2 | Identity | bcrypt registration/login, MySQL sessions, CSRF, throttling |
-| 3 | Documents | private uploads, ownership checks, expiring share links |
-| 4 | Trust | per-document permissions, audit log, rate limiting, security review |
-| 5 | Ship | Vercel + Node host, production envs, backups, demo script |
+| 2 | Identity | ✅ bcrypt login, MySQL sessions, CSRF, throttling, audit trail |
+| 3 | Documents | ✅ private uploads, ownership checks, search, streaming downloads |
+| 4 | Trust | ✅ per-document permissions, immediate revocation, admin isolation |
+| 5 | Ship | ✅ audit tamper evidence, admin dashboard, security audit & fixes |
 
 ---
 
@@ -678,3 +688,138 @@ directory (both removed afterwards):
   antivirus scanning happens.
 - Soft delete deliberately keeps bytes; purging is a scheduled job, not a user
   action.
+
+---
+
+## Day 4 — Document-Level Permissions & Immediate Revocation
+
+Per-document access control, owner-governed sharing, instant revocation, and complete administrative isolation.
+
+### Permission Model
+- **Owner**: Full control. Only owners may grant or revoke permissions.
+- **Viewer**: Read metadata and download permitted document contents.
+- **Editor**: Read metadata, download contents, and edit permitted metadata.
+- **Admin**: System governance only. **Does NOT have automatic permission to read or download document contents.**
+
+### Endpoints Added
+- `GET /api/documents/stats`: Aggregated dashboard metrics for current viewer.
+- `GET /api/documents/:id/permissions`: List current grants (owner only).
+- `POST /api/documents/:id/permissions`: Grant or update permission role.
+- `DELETE /api/documents/:id/permissions/:userId`: Revoke access immediately.
+- `GET /api/documents/:id/access-history`: Audit history for a specific document.
+- `GET /api/access-history`: Cross-document access history for manageable documents.
+
+---
+
+## Day 5 — Tamper-Evident Audit Trail, Security Review & Production Hardening
+
+The final submission delivers full administrative governance, cryptographic tamper evidence, an independent security review, and vulnerability remediation.
+
+### Audit Security & Tamper Resistance
+- **Database Engine Immutability**: MySQL `BEFORE UPDATE` and `BEFORE DELETE` triggers reject any raw SQL modification or deletion of `audit_logs` or `audit_checkpoints` with `SQLSTATE '45000'`.
+- **SHA-256 Hash Chaining**: Every audit entry commits to the canonical JSON digest of the current record plus the preceding record's `entry_hash`.
+- **Periodic Checkpoints**: Cryptographic checkpoints anchor chain state, detecting retroactive tampering or entry splicing.
+- **Admin Dashboard**: Search and filter events across actors, documents, outcomes, and dates. Includes full user lifecycle activation/deactivation controls.
+
+### Security Review Findings & Resolutions
+An independent review evaluated the codebase across 13 threat categories:
+1. **Finding 1 (Medium - DB Privileges):** Resolved by splitting `database/bootstrap.sql` into deployment user (`trustvault_deploy` with DDL) and runtime user (`trustvault` with DML on operational tables and strictly `SELECT, INSERT` on audit tables).
+2. **Finding 2 (Medium - Password Spraying):** Resolved by implementing dual-tier rate limiting in `server/src/app.ts`: Tier-1 global per-IP ceiling (30 req / 15 min) + Tier-2 per-(IP+email) limit (10 req / 15 min).
+3. **Finding 3 (Low-Medium - Title Leakage):** Resolved by conditionally projecting document titles with `CASE WHEN d.owner_id = ? OR p.user_id IS NOT NULL THEN d.title ELSE '[Restricted]' END` in manager history queries.
+4. **Finding 4 (Low - Stream Revocation):** Documented architectural boundary: revocation immediately denies all new HTTP requests; active in-flight streams cannot recall already-sent bytes.
+
+Automated regression coverage: `server/tests/security-regression.test.ts` (5 tests passing).
+
+---
+
+## Clean Clone Deployment Instructions
+
+Follow these steps to deploy and run TrustVault on a fresh machine:
+
+### 1. Prerequisites
+- **Node.js**: v22.x LTS (tested on v22.13.0)
+- **npm**: v10.x or higher
+- **MySQL Server**: v8.0 or higher running on port 3306
+
+### 2. Clone and Install
+```powershell
+git clone <repository-url> trustvault
+cd trustvault
+npm install
+```
+
+### 3. Environment Configuration
+```powershell
+Copy-Item .env.example .env
+```
+Generate a strong 64-character session secret:
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
+Edit `.env` and set:
+```ini
+NODE_ENV=production
+PORT=4000
+SESSION_SECRET=<generated-64-char-hex-secret>
+DATABASE_HOST=127.0.0.1
+DATABASE_PORT=3306
+DATABASE_USER=trustvault
+DATABASE_PASSWORD=<your-runtime-db-password>
+DATABASE_NAME=trustvault
+CLIENT_ORIGINS=http://localhost:5173
+STORAGE_DIR=./storage
+```
+
+For the client:
+```powershell
+Copy-Item client/.env.example client/.env
+```
+Ensure `VITE_API_BASE_URL=http://localhost:4000` is configured in `client/.env`.
+
+### 4. Database Bootstrap & Migrations
+Log in to MySQL as root and execute `database/bootstrap.sql` (replacing the placeholder passwords):
+```powershell
+mysql -u root -p < database/bootstrap.sql
+```
+Run the forward-only migration runner to create tables and triggers:
+```powershell
+npm run migrate
+```
+Verify status:
+```powershell
+npm run migrate:status
+# Expected: 5 applied, 0 pending, 0 drifted, 0 missing
+```
+
+### 5. Seed Demo Accounts
+Safely seed demo accounts (admin, owner, viewer):
+```powershell
+# For production mode, pass SEED_ALLOW_PRODUCTION=true
+$env:SEED_ALLOW_PRODUCTION="true"
+npm run seed
+```
+Save the printed generated passwords. Passwords are shown once and stored solely as bcrypt hashes.
+
+### 6. Build and Run Production Services
+Build both client and server:
+```powershell
+npm run build
+```
+
+Run tests to verify deployment integrity:
+```powershell
+npm test
+# Expected: 202 server tests + 22 client tests passing
+```
+
+Start the API and Client:
+```powershell
+# Terminal 1: API
+npm start
+
+# Terminal 2: Client
+cd client
+npx vite preview --port 5173
+```
+Access the application at `http://localhost:5173`.
+
