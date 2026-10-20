@@ -11,7 +11,9 @@ Snovasys hackathon.
 > with confirmed fixes and regression tests.
 
 ![stack](https://img.shields.io/badge/stack-Node%2022%20%C2%B7%20Express%205%20%C2%B7%20React%2019%20%C2%B7%20MySQL%208-0b1220)
-![tests](https://img.shields.io/badge/tests-224%20passed%20(15%20suites)-0b1220)
+![tests](https://img.shields.io/badge/tests-229%20passed%20(16%20suites)-0b1220)
+
+🌐 **Live Deployment**: Deployable to Render or Railway with 1-click MySQL backend. See [Live Deployment Guide](#live-deployment-getting-a-public-url).
 
 ---
 
