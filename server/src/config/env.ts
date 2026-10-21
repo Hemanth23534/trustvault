@@ -204,7 +204,10 @@ const envSchema = z
     DATABASE_SSL: z
       .string()
       .optional()
-      .transform((val) => val === 'true' || val === '1' || val === 'require'),
+      .transform((val) => {
+        if (val === undefined) return undefined;
+        return val === 'true' || val === '1' || val === 'require';
+      }),
     DATABASE_SSL_REJECT_UNAUTHORIZED: z
       .string()
       .optional()
@@ -284,6 +287,16 @@ type RawEnv = z.infer<typeof envSchema>;
 
 function toEnv(parsed: RawEnv): Env {
   const nodeEnv = parsed.NODE_ENV;
+  const isCloudHost =
+    parsed.DATABASE_HOST.includes('tidbcloud.com') ||
+    parsed.DATABASE_HOST.includes('aivencloud.com') ||
+    parsed.DATABASE_HOST.includes('neon.tech') ||
+    parsed.DATABASE_PORT === 4000;
+  const useSsl =
+    parsed.DATABASE_SSL !== undefined
+      ? parsed.DATABASE_SSL
+      : isCloudHost;
+
   return {
     nodeEnv,
     isDevelopment: nodeEnv === 'development',
@@ -320,7 +333,7 @@ function toEnv(parsed: RawEnv): Env {
       password: parsed.DATABASE_PASSWORD,
       name: parsed.DATABASE_NAME,
       connectionLimit: parsed.DATABASE_CONNECTION_LIMIT,
-      ...(parsed.DATABASE_SSL ? { ssl: true, sslRejectUnauthorized: parsed.DATABASE_SSL_REJECT_UNAUTHORIZED } : {}),
+      ...(useSsl ? { ssl: true, sslRejectUnauthorized: parsed.DATABASE_SSL_REJECT_UNAUTHORIZED !== false } : {}),
     },
     storage: {
       driver: parsed.STORAGE_DRIVER,

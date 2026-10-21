@@ -1,4 +1,4 @@
-import { Router, type CookieOptions, type RequestHandler } from 'express';
+import { Router, type CookieOptions, type Request as ExpressRequest, type RequestHandler } from 'express';
 import { z } from 'zod';
 import type { Env } from '../../config/env.js';
 import type { AuthService } from '../../auth/auth-service.js';
@@ -42,13 +42,32 @@ export interface AuthRouterOptions {
   loginRateLimiter?: RequestHandler;
 }
 
-function cookieOptions(env: Env): CookieOptions {
+function cookieOptions(env: Env, req?: ExpressRequest): CookieOptions {
+  const isHttps = Boolean(
+    env.session.secure ||
+    req?.secure ||
+    req?.headers['x-forwarded-proto'] === 'https'
+  );
+
+  const originHeader = typeof req?.headers.origin === 'string' ? req.headers.origin : undefined;
+  const hostHeader = typeof req?.headers.host === 'string' ? req.headers.host : undefined;
+  const isCrossOrigin = Boolean(
+    originHeader &&
+    hostHeader &&
+    !originHeader.includes(hostHeader)
+  );
+
+  const shouldSameSiteNone =
+    env.session.sameSite === 'none' ||
+    (isHttps && isCrossOrigin);
+
   return {
     httpOnly: true,
-    secure: env.session.secure,
-    sameSite: env.session.sameSite,
+    secure: shouldSameSiteNone ? true : env.session.secure,
+    sameSite: shouldSameSiteNone ? 'none' : env.session.sameSite,
     path: '/',
-  };
+    ...(shouldSameSiteNone ? { partitioned: true } : {}),
+  } as CookieOptions;
 }
 
 function serializeSession(context: AuthContext): {
@@ -96,7 +115,7 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
     });
 
     const maxAge = Math.max(0, result.session.expiresAt.getTime() - Date.now());
-    res.cookie(env.session.cookieName, result.token, { ...cookieOptions(env), maxAge });
+    res.cookie(env.session.cookieName, result.token, { ...cookieOptions(env, req), maxAge });
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).json({
       user: result.user,
@@ -130,7 +149,7 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
     });
 
     const maxAge = Math.max(0, result.session.expiresAt.getTime() - Date.now());
-    res.cookie(env.session.cookieName, result.token, { ...cookieOptions(env), maxAge });
+    res.cookie(env.session.cookieName, result.token, { ...cookieOptions(env, req), maxAge });
     res.setHeader('Cache-Control', 'no-store');
     res.status(201).json({
       user: result.user,
@@ -166,7 +185,7 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
       userAgent: req.get('user-agent'),
       requestId: req.id,
     });
-    res.clearCookie(env.session.cookieName, cookieOptions(env));
+    res.clearCookie(env.session.cookieName, cookieOptions(env, req));
     res.status(204).end();
   });
 

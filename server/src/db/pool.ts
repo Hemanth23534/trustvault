@@ -48,12 +48,16 @@ export function createPool(env: Env): Pool {
     decimalNumbers: true,
     namedPlaceholders: true,
     multipleStatements: false,
-    ssl: env.database.ssl
-      ? {
-          minVersion: 'TLSv1.2',
-          rejectUnauthorized: env.database.sslRejectUnauthorized !== false,
-        }
-      : undefined,
+    ssl:
+      env.database.ssl ||
+      env.database.host.includes('tidbcloud.com') ||
+      env.database.host.includes('aivencloud.com') ||
+      env.database.port === 4000
+        ? {
+            minVersion: 'TLSv1.2',
+            rejectUnauthorized: env.database.sslRejectUnauthorized !== false,
+          }
+        : undefined,
   });
 
   // Pin every pooled connection to UTC.

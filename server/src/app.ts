@@ -51,6 +51,29 @@ export interface CreateAppOptions {
 const JSON_BODY_LIMIT = '64kb';
 const FORM_BODY_LIMIT = '16kb';
 
+export function isAllowedOrigin(origin: string | undefined, clientOrigins: readonly string[]): boolean {
+  if (!origin) return true;
+  if (clientOrigins.includes(origin)) return true;
+
+  try {
+    const parsed = new URL(origin);
+    const host = parsed.hostname.toLowerCase();
+
+    // Render subdomains (e.g. trustvault-app.onrender.com)
+    if (host.endsWith('.onrender.com')) return true;
+
+    // GitHub Pages deployments (e.g. username.github.io)
+    if (host.endsWith('.github.io')) return true;
+
+    // Localhost / 127.0.0.1 for development
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 export function createApp(options: CreateAppOptions): Express {
   const { env, logger } = options;
   const pingDatabase: DatabasePing =
@@ -164,7 +187,7 @@ export function createApp(options: CreateAppOptions): Express {
     origin(origin, callback) {
       // No Origin header: curl, server-to-server, health probes. Not a browser
       // cross-origin request, so there is nothing to authorize.
-      if (!origin || env.clientOrigins.includes(origin)) {
+      if (!origin || isAllowedOrigin(origin, env.clientOrigins)) {
         callback(null, true);
         return;
       }
@@ -178,7 +201,7 @@ export function createApp(options: CreateAppOptions): Express {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-CSRF-Token'],
+    allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-CSRF-Token', 'Accept', 'Authorization'],
     exposedHeaders: ['X-Request-Id', 'Retry-After', 'Content-Disposition'],
     maxAge: 600,
     optionsSuccessStatus: 204,

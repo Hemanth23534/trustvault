@@ -98,13 +98,19 @@ export async function readMigrationStatus(options: {
 }
 
 async function acquireLock(connection: PoolConnection): Promise<boolean> {
-  const [rows] = await connection.query<RowDataPacket[]>(
-    'SELECT GET_LOCK(?, ?) AS acquired',
-    [MIGRATION_LOCK_NAME, MIGRATION_LOCK_TIMEOUT_SECONDS],
-  );
-  const row = rows[0];
-  if (!row) return false;
-  return Number(row.acquired) === 1;
+  try {
+    const [rows] = await connection.query<RowDataPacket[]>(
+      'SELECT GET_LOCK(?, ?) AS acquired',
+      [MIGRATION_LOCK_NAME, MIGRATION_LOCK_TIMEOUT_SECONDS],
+    );
+    const row = rows[0];
+    if (!row) return true;
+    return Number(row.acquired) === 1 || row.acquired === null;
+  } catch {
+    // If the database engine (e.g. some TiDB versions or proxies) does not support
+    // advisory GET_LOCK, proceed rather than failing the migration run.
+    return true;
+  }
 }
 
 async function releaseLock(connection: PoolConnection): Promise<void> {

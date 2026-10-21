@@ -98,6 +98,29 @@ describe('CORS allow-list', () => {
     expect(response.headers['access-control-allow-methods']).toContain('GET');
   });
 
+  it('answers preflight requests for Render and GitHub Pages origins', async () => {
+    const renderOrigin = 'https://trustvault-app.onrender.com';
+    const renderResponse = await request(buildApp())
+      .options('/api/health')
+      .set('Origin', renderOrigin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type')
+      .expect(204);
+
+    expect(renderResponse.headers['access-control-allow-origin']).toBe(renderOrigin);
+    expect(renderResponse.headers['access-control-allow-credentials']).toBe('true');
+
+    const ghOrigin = 'https://trustvault-preview.github.io';
+    const ghResponse = await request(buildApp())
+      .options('/api/health')
+      .set('Origin', ghOrigin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type')
+      .expect(204);
+
+    expect(ghResponse.headers['access-control-allow-origin']).toBe(ghOrigin);
+  });
+
   it('rejects an unlisted origin with a typed 403', async () => {
     const response = await request(buildApp())
       .get('/api/health')

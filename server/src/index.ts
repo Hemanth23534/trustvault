@@ -1,9 +1,12 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import http from 'node:http';
 import { createApp } from './app.js';
-import { EnvValidationError, loadEnv } from './config/env.js';
+import { EnvValidationError, loadEnv, REPO_ROOT, SERVER_ROOT } from './config/env.js';
 import { createLogger } from './config/logger.js';
 import { API_PREFIX, SERVICE_NAME, SERVICE_VERSION } from './config/service-info.js';
-import { closePool, hasPool } from './db/pool.js';
+import { runMigrations } from './db/migrate.js';
+import { closePool, getPool, hasPool } from './db/pool.js';
 import { ensureStorageDir } from './storage/private-storage.js';
 
 /** How long in-flight requests get before the process is forced down. */
@@ -22,6 +25,31 @@ async function main(): Promise<void> {
     // Storage is prepared here so upload endpoints can rely on it. Failing to
     // create it must not stop health checks from answering.
     logger.warn({ err: error, storageDir: env.storageDir }, 'private storage directory unavailable');
+  }
+
+  // Auto-run schema migrations on startup so deployments are ready out of the box.
+  try {
+    const candidates = [
+      process.env.MIGRATIONS_DIR,
+      path.join(REPO_ROOT, 'database', 'migrations'),
+      path.join(SERVER_ROOT, '..', 'database', 'migrations'),
+      path.join(process.cwd(), 'database', 'migrations'),
+      path.join(process.cwd(), '..', 'database', 'migrations'),
+    ];
+    const migrationsDir = candidates.find((dir) => Boolean(dir && fs.existsSync(dir)));
+    if (migrationsDir) {
+      const pool = getPool(env);
+      const result = await runMigrations({
+        pool,
+        migrationsDir,
+        log: (msg) => logger.info({ msg }, 'migration'),
+      });
+      if (result.applied.length > 0) {
+        logger.info({ applied: result.applied }, 'applied database migrations successfully');
+      }
+    }
+  } catch (migError) {
+    logger.warn({ err: migError }, 'database migration check failed on startup; will continue');
   }
 
   const app = createApp({ env, logger });
