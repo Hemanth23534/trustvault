@@ -1,3 +1,5 @@
+import nodemailer from 'nodemailer';
+import type { Transporter } from 'nodemailer';
 import { Resend } from 'resend';
 import type { Env } from '../config/env.js';
 import type { Logger } from '../config/logger.js';
@@ -13,6 +15,130 @@ export interface EmailDeliveryResult {
 
 export interface EmailService {
   sendInvitationEmail(data: InvitationEmailData): Promise<EmailDeliveryResult>;
+  sendTestEmail?(to: string): Promise<EmailDeliveryResult>;
+  verifyConnection?(): Promise<{ ok: boolean; error?: string }>;
+}
+
+export class SmtpEmailService implements EmailService {
+  private readonly transporter: Transporter;
+  private readonly fromEmail: string;
+  private readonly logger?: Logger;
+
+  constructor(options: {
+    host: string;
+    port: number;
+    secure: boolean;
+    user?: string;
+    pass?: string;
+    fromEmail: string;
+    logger?: Logger;
+    transporter?: Transporter;
+  }) {
+    this.fromEmail = options.fromEmail;
+    this.logger = options.logger;
+
+    if (options.transporter) {
+      this.transporter = options.transporter;
+    } else {
+      this.transporter = nodemailer.createTransport({
+        host: options.host,
+        port: options.port,
+        secure: options.secure,
+        auth:
+          options.user && options.pass
+            ? {
+                user: options.user,
+                // Sanitize Google App Password spaces if present (e.g. "abcd efgh ijkl mnop")
+                pass: options.pass.replace(/\s+/g, ''),
+              }
+            : undefined,
+        tls: {
+          minVersion: 'TLSv1.2',
+          rejectUnauthorized: true,
+        },
+      });
+    }
+  }
+
+  async verifyConnection(): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await this.transporter.verify();
+      this.logger?.info('SMTP transporter connection verified successfully');
+      return { ok: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger?.error({ error: message }, 'SMTP transporter verification failed');
+      return { ok: false, error: message };
+    }
+  }
+
+  async sendInvitationEmail(data: InvitationEmailData): Promise<EmailDeliveryResult> {
+    const { subject, html, text } = renderInvitationEmail(data);
+
+    try {
+      const info = await this.transporter.sendMail({
+        from: this.fromEmail,
+        to: data.to,
+        subject,
+        html,
+        text,
+      });
+
+      this.logger?.info(
+        {
+          recipient: data.to,
+          company: data.companyName,
+          messageId: info.messageId,
+        },
+        'Invitation email accepted by SMTP server',
+      );
+
+      return {
+        ok: true,
+        messageId: info.messageId,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger?.error(
+        {
+          recipient: data.to,
+          company: data.companyName,
+          error: message,
+        },
+        'SMTP email delivery failed',
+      );
+
+      return {
+        ok: false,
+        error: message,
+      };
+    }
+  }
+
+  async sendTestEmail(to: string): Promise<EmailDeliveryResult> {
+    try {
+      const info = await this.transporter.sendMail({
+        from: this.fromEmail,
+        to,
+        subject: 'TrustVault — Gmail SMTP Test Email',
+        text: `This is a test email from TrustVault confirming Gmail SMTP delivery is active and working.\n\nTimestamp: ${new Date().toISOString()}`,
+        html: `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; background: #0b0f19; color: #e2e8f0; border-radius: 8px;">
+          <h2 style="color: #6366f1; margin: 0 0 12px 0;">TrustVault &mdash; Gmail SMTP Test</h2>
+          <p style="margin: 0 0 16px 0; color: #cbd5e1;">Your Gmail SMTP connection is configured and working properly!</p>
+          <div style="background: #151d30; padding: 12px 16px; border-radius: 6px; font-size: 13px; color: #94a3b8;">
+            <strong>Delivered at:</strong> ${new Date().toUTCString()}
+          </div>
+        </div>`,
+      });
+
+      this.logger?.info({ to, messageId: info.messageId }, 'Test email delivered via Gmail SMTP');
+      return { ok: true, messageId: info.messageId };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger?.error({ to, error: message }, 'Failed to deliver test email via Gmail SMTP');
+      return { ok: false, error: message };
+    }
+  }
 }
 
 export class ResendEmailService implements EmailService {
@@ -104,7 +230,7 @@ export class ConsoleEmailService implements EmailService {
         role: data.role,
         inviteUrl: data.inviteUrl,
       },
-      '[DEV/TEST] Invitation email simulated (RESEND_API_KEY not configured)',
+      '[DEV/TEST] Invitation email simulated (neither Gmail SMTP nor Resend configured)',
     );
 
     return {
@@ -115,7 +241,19 @@ export class ConsoleEmailService implements EmailService {
 }
 
 export function createEmailService(env: Env, logger?: Logger): EmailService {
-  if (env.email.resendApiKey && env.email.resendApiKey.trim() !== '') {
+  if (env.email.provider === 'smtp' && env.email.smtp?.user && env.email.smtp?.pass) {
+    return new SmtpEmailService({
+      host: env.email.smtp.host,
+      port: env.email.smtp.port,
+      secure: env.email.smtp.secure,
+      user: env.email.smtp.user,
+      pass: env.email.smtp.pass,
+      fromEmail: env.email.fromEmail,
+      logger,
+    });
+  }
+
+  if (env.email.provider === 'resend' && env.email.resendApiKey && env.email.resendApiKey.trim() !== '') {
     return new ResendEmailService({
       apiKey: env.email.resendApiKey.trim(),
       fromEmail: env.email.fromEmail,

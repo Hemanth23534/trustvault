@@ -8,8 +8,10 @@ import {
   ConsoleEmailService,
   createEmailService,
   ResendEmailService,
+  SmtpEmailService,
 } from '../src/email/email-service.js';
 import { testEnv } from './support/test-env.js';
+import type { Transporter } from 'nodemailer';
 
 describe('Invitation Email Template', () => {
   it('formats role display correctly for all user roles', () => {
@@ -113,5 +115,123 @@ describe('Email Service Factory and Implementations', () => {
 
     expect(result.ok).toBe(true);
     expect(result.messageId).toMatch(/^simulated-/);
+  });
+
+  it('returns SmtpEmailService when SMTP_USER and SMTP_PASS are configured', () => {
+    const env = testEnv({
+      SMTP_USER: 'test@gmail.com',
+      SMTP_PASS: 'abcdefghijklmnop',
+      SMTP_HOST: 'smtp.gmail.com',
+      SMTP_PORT: '465',
+    });
+
+    const service = createEmailService(env);
+    expect(service).toBeInstanceOf(SmtpEmailService);
+  });
+});
+
+describe('SmtpEmailService Implementation', () => {
+  it('delivers invitation emails using the underlying transport and returns messageId', async () => {
+    const sentMails: any[] = [];
+    const mockTransporter = {
+      sendMail: async (options: any) => {
+        sentMails.push(options);
+        return { messageId: '<gmail-mock-12345@gmail.com>', response: '250 2.0.0 OK' };
+      },
+      verify: async () => true,
+    } as unknown as Transporter;
+
+    const service = new SmtpEmailService({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      user: 'admin@gmail.com',
+      pass: 'abcd efgh ijkl mnop', // with spaces to test sanitization
+      fromEmail: 'TrustVault <admin@gmail.com>',
+      transporter: mockTransporter,
+    });
+
+    const result = await service.sendInvitationEmail({
+      to: 'new-employee@example.com',
+      companyName: 'Acme Robotics',
+      invitedByName: 'Alice Founder',
+      role: 'editor',
+      inviteUrl: 'https://trustvault.example.com/register?invite=sec-tok',
+      expiresAt: new Date('2026-10-28T12:00:00.000Z'),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.messageId).toBe('<gmail-mock-12345@gmail.com>');
+    expect(sentMails).toHaveLength(1);
+    expect(sentMails[0].from).toBe('TrustVault <admin@gmail.com>');
+    expect(sentMails[0].to).toBe('new-employee@example.com');
+    expect(sentMails[0].subject).toContain('Acme Robotics');
+    expect(sentMails[0].html).toContain('Alice Founder');
+    expect(sentMails[0].text).toContain('https://trustvault.example.com/register?invite=sec-tok');
+  });
+
+  it('safely catches transport errors and returns ok: false without crashing', async () => {
+    const mockTransporter = {
+      sendMail: async () => {
+        throw new Error('535 5.7.8 Username and Password not accepted');
+      },
+      verify: async () => {
+        throw new Error('Connection timeout');
+      },
+    } as unknown as Transporter;
+
+    const service = new SmtpEmailService({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      user: 'admin@gmail.com',
+      pass: 'invalid-password',
+      fromEmail: 'TrustVault <admin@gmail.com>',
+      transporter: mockTransporter,
+    });
+
+    const result = await service.sendInvitationEmail({
+      to: 'user@example.com',
+      companyName: 'Test Co',
+      invitedByName: 'Admin',
+      role: 'viewer',
+      inviteUrl: 'https://trustvault.example.com/register?invite=tok',
+      expiresAt: new Date(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Username and Password not accepted');
+
+    const verify = await service.verifyConnection();
+    expect(verify.ok).toBe(false);
+    expect(verify.error).toContain('Connection timeout');
+  });
+
+  it('delivers test emails with status and timestamp', async () => {
+    let sentTestMail: any = null;
+    const mockTransporter = {
+      sendMail: async (options: any) => {
+        sentTestMail = options;
+        return { messageId: '<test-msg-id-999@gmail.com>' };
+      },
+      verify: async () => true,
+    } as unknown as Transporter;
+
+    const service = new SmtpEmailService({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      fromEmail: 'TrustVault <sender@gmail.com>',
+      transporter: mockTransporter,
+    });
+
+    const verify = await service.verifyConnection();
+    expect(verify.ok).toBe(true);
+
+    const result = await service.sendTestEmail('recipient@example.com');
+    expect(result.ok).toBe(true);
+    expect(result.messageId).toBe('<test-msg-id-999@gmail.com>');
+    expect(sentTestMail.to).toBe('recipient@example.com');
+    expect(sentTestMail.subject).toContain('Gmail SMTP Test Email');
   });
 });

@@ -265,7 +265,12 @@ Copy `.env.example` → `.env`. The server loads, in order: real process env,
 | `STORAGE_DIR` | `./storage` | no | Resolved from `server/`; git-ignored |
 | `MAX_UPLOAD_BYTES` | `10485760` | no | 10 MiB ceiling |
 | `LOG_LEVEL` | `info` | no | `fatal…trace` or `silent` |
-| `RESEND_API_KEY` | *(empty)* | **recommended in production** | Resend API key for real email delivery |
+| `SMTP_HOST` | `smtp.gmail.com` | no | Gmail / custom SMTP host |
+| `SMTP_PORT` | `465` | no | 465 (secure TLS) or 587 (STARTTLS) |
+| `SMTP_USER` | *(empty)* | **recommended in production** | Gmail email address for SMTP |
+| `SMTP_PASS` | *(empty)* | **recommended in production** | Google App Password (16 chars) |
+| `MAIL_FROM` | `TrustVault <SMTP_USER>` | no | Sender name & email for outgoing invitations |
+| `RESEND_API_KEY` | *(empty)* | no | Alternative: Resend API key |
 | `INVITATION_FROM_EMAIL` | `TrustVault <onboarding@resend.dev>` | no | Sender address or verified domain |
 | `FRONTEND_URL` | *(first client origin)* | no | Base URL for invitation links |
 | `VITE_API_BASE_URL` | `http://localhost:4000` | client `.env` | Baked in at build time |
@@ -938,8 +943,12 @@ TrustVault can be deployed to any Node.js + MySQL cloud host (e.g., Render, Rail
      - `SESSION_SECRET=<random 64-character hex string>`
      - `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`
      - `CLIENT_ORIGIN=https://<your-frontend-domain>`
-     - `RESEND_API_KEY=<your-resend-api-key>`
-     - `INVITATION_FROM_EMAIL=TrustVault <onboarding@resend.dev>` (or your verified domain)
+     - `SMTP_HOST=smtp.gmail.com`
+     - `SMTP_PORT=465`
+     - `SMTP_USER=<your-gmail-address>`
+     - `SMTP_PASS=<your-16-char-google-app-password>`
+     - `MAIL_FROM=TrustVault <<your-gmail-address>>`
+     - *(Or alternative: `RESEND_API_KEY=<key>`)*
 
 3. **Deploy Web Client (`client`)**:
    - Create a Static Site service connected to your GitHub repo.

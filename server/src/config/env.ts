@@ -78,6 +78,14 @@ export interface Env {
   readonly storageDir: string;
   readonly maxUploadBytes: number;
   readonly email: {
+    readonly provider: 'smtp' | 'resend' | 'console';
+    readonly smtp?: {
+      readonly host: string;
+      readonly port: number;
+      readonly secure: boolean;
+      readonly user?: string;
+      readonly pass?: string;
+    };
     readonly resendApiKey?: string;
     readonly fromEmail: string;
     readonly frontendUrl: string;
@@ -236,12 +244,34 @@ const envSchema = z
     STORAGE_DIR: z.string().min(1).default('./storage'),
     MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).max(104_857_600).default(10_485_760),
 
+    // SMTP configuration
+    SMTP_HOST: z.string().trim().default('smtp.gmail.com'),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(465),
+    SMTP_USER: z.string().trim().optional(),
+    SMTP_PASS: z.string().trim().optional(),
+    SMTP_SECURE: z.coerce.boolean().optional(),
+    MAIL_FROM: z.string().trim().optional(),
+
     RESEND_API_KEY: z.string().trim().optional(),
     INVITATION_FROM_EMAIL: z.string().trim().optional(),
     EMAIL_FROM: z.string().trim().optional(),
     FRONTEND_URL: z.string().trim().optional(),
   })
   .superRefine((value, ctx) => {
+    if (value.SMTP_USER && !value.SMTP_PASS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SMTP_PASS'],
+        message: 'SMTP_PASS must be provided when SMTP_USER is set for Gmail/SMTP authentication.',
+      });
+    }
+    if (value.SMTP_PASS && !value.SMTP_USER) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SMTP_USER'],
+        message: 'SMTP_USER (your Gmail address) must be provided when SMTP_PASS is set for Gmail/SMTP authentication.',
+      });
+    }
     const origins = splitOrigins(value.CLIENT_ORIGINS);
 
     if (origins.length === 0) {
@@ -376,17 +406,44 @@ function toEnv(parsed: RawEnv): Env {
       ? path.normalize(parsed.STORAGE_DIR)
       : path.resolve(SERVER_ROOT, parsed.STORAGE_DIR),
     maxUploadBytes: parsed.MAX_UPLOAD_BYTES,
-    email: {
-      resendApiKey: parsed.RESEND_API_KEY || undefined,
-      fromEmail:
+    email: (() => {
+      const hasSmtpCreds = Boolean(parsed.SMTP_USER && parsed.SMTP_PASS);
+      const smtpSecure =
+        parsed.SMTP_SECURE !== undefined
+          ? parsed.SMTP_SECURE
+          : parsed.SMTP_PORT === 465;
+
+      let provider: 'smtp' | 'resend' | 'console' = 'console';
+      if (hasSmtpCreds) {
+        provider = 'smtp';
+      } else if (parsed.RESEND_API_KEY && parsed.RESEND_API_KEY.trim() !== '') {
+        provider = 'resend';
+      }
+
+      const fromEmail =
+        parsed.MAIL_FROM ||
+        (parsed.SMTP_USER ? `TrustVault <${parsed.SMTP_USER}>` : undefined) ||
         parsed.INVITATION_FROM_EMAIL ||
         parsed.EMAIL_FROM ||
-        'TrustVault <onboarding@resend.dev>',
-      frontendUrl:
-        parsed.FRONTEND_URL ||
-        splitOrigins(parsed.CLIENT_ORIGINS).map(normalizeOrigin).find(Boolean) ||
-        'http://localhost:5173',
-    },
+        'TrustVault <onboarding@resend.dev>';
+
+      return {
+        provider,
+        smtp: {
+          host: parsed.SMTP_HOST,
+          port: parsed.SMTP_PORT,
+          secure: smtpSecure,
+          user: parsed.SMTP_USER || undefined,
+          pass: parsed.SMTP_PASS || undefined,
+        },
+        resendApiKey: parsed.RESEND_API_KEY || undefined,
+        fromEmail,
+        frontendUrl:
+          parsed.FRONTEND_URL ||
+          splitOrigins(parsed.CLIENT_ORIGINS).map(normalizeOrigin).find(Boolean) ||
+          'http://localhost:5173',
+      };
+    })(),
   };
 }
 
@@ -400,7 +457,9 @@ export function parseEnv(raw: Record<string, string | undefined> = process.env):
     CLIENT_ORIGINS: raw.CLIENT_ORIGINS ?? raw.CLIENT_ORIGIN ?? raw.FRONTEND_URL ?? raw.CLIENT_URL,
     COOKIE_SECURE: raw.COOKIE_SECURE ?? raw.SESSION_COOKIE_SECURE,
     FRONTEND_URL: raw.FRONTEND_URL ?? raw.CLIENT_URL,
-    INVITATION_FROM_EMAIL: raw.INVITATION_FROM_EMAIL ?? raw.EMAIL_FROM,
+    INVITATION_FROM_EMAIL: raw.INVITATION_FROM_EMAIL ?? raw.EMAIL_FROM ?? raw.MAIL_FROM,
+    MAIL_FROM: raw.MAIL_FROM ?? raw.EMAIL_FROM ?? raw.INVITATION_FROM_EMAIL,
+    SMTP_PASS: raw.SMTP_PASS ?? raw.SMTP_PASSWORD,
   };
 
   const dbUrl = raw.DATABASE_URL ?? raw.DATABASE_URI ?? raw.TIDB_URL;
@@ -468,9 +527,12 @@ export function collectWarnings(env: Env): string[] {
       'SESSION_COOKIE_SAME_SITE=none requires HTTPS and a Secure cookie; browsers drop it on plain-HTTP local development.',
     );
   }
-  if (env.isProduction && !env.email.resendApiKey) {
+  const hasSmtp = Boolean(env.email.smtp?.user && env.email.smtp?.pass);
+  const hasResend = Boolean(env.email.resendApiKey);
+
+  if (env.isProduction && !hasSmtp && !hasResend) {
     warnings.push(
-      'RESEND_API_KEY is not set. Employee invitation emails will not be delivered to real inboxes. Configure RESEND_API_KEY in Render.',
+      'RESEND_API_KEY is not set and Gmail SMTP (SMTP_USER/SMTP_PASS) is not configured. Employee invitation emails will not be delivered to real inboxes. Configure Gmail SMTP or Resend in Render.',
     );
   }
 

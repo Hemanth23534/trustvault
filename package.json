@@ -26,7 +26,8 @@
     "start": "npm run start --workspace @trustvault/server",
     "migrate": "npm run migrate --workspace @trustvault/server",
     "migrate:status": "npm run migrate:status --workspace @trustvault/server",
-    "migrate:dry": "npm run migrate:dry --workspace @trustvault/server"
+    "migrate:dry": "npm run migrate:dry --workspace @trustvault/server",
+    "test:smtp": "npm run test:smtp --workspace @trustvault/server"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"
