@@ -88,6 +88,34 @@ describe('parseEnv', () => {
     expect(env.clientOrigins).toEqual(['https://trustvault-app.onrender.com']);
   });
 
+  it('parses DATABASE_URL connection string and sets SSL for cloud hosts', () => {
+    const env = parseEnv({
+      ...MINIMAL,
+      DATABASE_URL: 'mysql://root_user:myPassword123@gateway01.us-east-1.prod.aws.tidbcloud.com:4000/trustvault',
+    });
+
+    expect(env.database.host).toBe('gateway01.us-east-1.prod.aws.tidbcloud.com');
+    expect(env.database.port).toBe(4000);
+    expect(env.database.user).toBe('root_user');
+    expect(env.database.password).toBe('myPassword123');
+    expect(env.database.name).toBe('trustvault');
+    expect(env.database.ssl).toBe(true);
+  });
+
+  it('allows explicit COOKIE_SECURE setting', () => {
+    const devSecure = parseEnv({
+      ...MINIMAL,
+      COOKIE_SECURE: 'true',
+    });
+    expect(devSecure.session.secure).toBe(true);
+
+    const devInsecure = parseEnv({
+      ...MINIMAL,
+      COOKIE_SECURE: 'false',
+    });
+    expect(devInsecure.session.secure).toBe(false);
+  });
+
   it('requires SESSION_SECRET with an actionable message', () => {
     const error = expectEnvError({});
 

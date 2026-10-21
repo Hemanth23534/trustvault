@@ -213,6 +213,14 @@ const envSchema = z
       .optional()
       .transform((val) => val !== 'false' && val !== '0'),
 
+    COOKIE_SECURE: z
+      .string()
+      .optional()
+      .transform((val) => {
+        if (val === undefined) return undefined;
+        return val === 'true' || val === '1';
+      }),
+
     STORAGE_DRIVER: z.enum(['fs', 'r2']).default('fs'),
     R2_ACCOUNT_ID: z.string().optional(),
     R2_ACCESS_KEY_ID: z.string().optional(),
@@ -315,9 +323,9 @@ function toEnv(parsed: RawEnv): Env {
       ttlHours: parsed.SESSION_TTL_HOURS,
       idleMinutes: parsed.SESSION_IDLE_MINUTES,
       sameSite: parsed.SESSION_COOKIE_SAME_SITE,
-      // `Secure` over plain HTTP would make the cookie unusable, so it is tied
-      // to the environment rather than exposed as a separate switch.
-      secure: nodeEnv === 'production',
+      // `Secure` over plain HTTP would make the cookie unusable, so it defaults
+      // to true in production, while respecting explicit COOKIE_SECURE if provided.
+      secure: parsed.COOKIE_SECURE !== undefined ? parsed.COOKIE_SECURE : nodeEnv === 'production',
     },
     security: {
       bcryptCost: parsed.BCRYPT_COST,
@@ -369,7 +377,32 @@ export function parseEnv(raw: Record<string, string | undefined> = process.env):
   const normalizedRaw: Record<string, string | undefined> = {
     ...raw,
     CLIENT_ORIGINS: raw.CLIENT_ORIGINS ?? raw.CLIENT_ORIGIN ?? raw.FRONTEND_URL ?? raw.CLIENT_URL,
+    COOKIE_SECURE: raw.COOKIE_SECURE ?? raw.SESSION_COOKIE_SECURE,
   };
+
+  const dbUrl = raw.DATABASE_URL ?? raw.DATABASE_URI ?? raw.TIDB_URL;
+  if (dbUrl && isBlank(raw.DATABASE_HOST)) {
+    try {
+      const parsedUrl = new URL(dbUrl);
+      if (parsedUrl.hostname) normalizedRaw.DATABASE_HOST = parsedUrl.hostname;
+      if (parsedUrl.port) normalizedRaw.DATABASE_PORT = parsedUrl.port;
+      if (parsedUrl.username) normalizedRaw.DATABASE_USER = decodeURIComponent(parsedUrl.username);
+      if (parsedUrl.password) normalizedRaw.DATABASE_PASSWORD = decodeURIComponent(parsedUrl.password);
+      const dbPath = parsedUrl.pathname.replace(/^\//, '');
+      if (dbPath) normalizedRaw.DATABASE_NAME = dbPath;
+      if (
+        parsedUrl.searchParams.has('ssl') ||
+        parsedUrl.protocol === 'mysqls:' ||
+        parsedUrl.hostname.includes('tidbcloud.com') ||
+        parsedUrl.port === '4000'
+      ) {
+        normalizedRaw.DATABASE_SSL = 'true';
+      }
+    } catch {
+      // Keep individual vars if URL parsing fails
+    }
+  }
+
   const missing = REQUIRED_KEYS.filter((key) => isBlank(normalizedRaw[key]));
   if (missing.length > 0) {
     throw new EnvValidationError(
