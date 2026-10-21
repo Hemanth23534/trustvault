@@ -366,7 +366,11 @@ function toEnv(parsed: RawEnv): Env {
  * Throws EnvValidationError with every problem it can find at once.
  */
 export function parseEnv(raw: Record<string, string | undefined> = process.env): Env {
-  const missing = REQUIRED_KEYS.filter((key) => isBlank(raw[key]));
+  const normalizedRaw: Record<string, string | undefined> = {
+    ...raw,
+    CLIENT_ORIGINS: raw.CLIENT_ORIGINS ?? raw.CLIENT_ORIGIN ?? raw.FRONTEND_URL ?? raw.CLIENT_URL,
+  };
+  const missing = REQUIRED_KEYS.filter((key) => isBlank(normalizedRaw[key]));
   if (missing.length > 0) {
     throw new EnvValidationError(
       missing.map((key) => ({
@@ -376,7 +380,7 @@ export function parseEnv(raw: Record<string, string | undefined> = process.env):
     );
   }
 
-  const result = envSchema.safeParse(raw);
+  const result = envSchema.safeParse(normalizedRaw);
   if (!result.success) {
     throw new EnvValidationError(
       result.error.issues.map((issue) => ({

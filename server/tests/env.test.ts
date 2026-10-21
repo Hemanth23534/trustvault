@@ -80,6 +80,14 @@ describe('parseEnv', () => {
     expect(env.clientOrigins).toEqual(['https://app.example.com', 'https://admin.example.com']);
   });
 
+  it('accepts CLIENT_ORIGIN or FRONTEND_URL as an alias for CLIENT_ORIGINS', () => {
+    const env = parseEnv({
+      ...MINIMAL,
+      CLIENT_ORIGIN: 'https://trustvault-app.onrender.com',
+    });
+    expect(env.clientOrigins).toEqual(['https://trustvault-app.onrender.com']);
+  });
+
   it('requires SESSION_SECRET with an actionable message', () => {
     const error = expectEnvError({});
 

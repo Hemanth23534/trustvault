@@ -121,6 +121,30 @@ describe('CORS allow-list', () => {
     expect(ghResponse.headers['access-control-allow-origin']).toBe(ghOrigin);
   });
 
+  it('answers preflight requests for /api/auth/login and /api/auth/me from Render frontend', async () => {
+    const renderOrigin = 'https://trustvault-app.onrender.com';
+    const loginResponse = await request(buildApp())
+      .options('/api/auth/login')
+      .set('Origin', renderOrigin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type, x-csrf-token')
+      .expect(204);
+
+    expect(loginResponse.headers['access-control-allow-origin']).toBe(renderOrigin);
+    expect(loginResponse.headers['access-control-allow-credentials']).toBe('true');
+    expect(loginResponse.headers['access-control-allow-methods']).toContain('POST');
+
+    const meResponse = await request(buildApp())
+      .options('/api/auth/me')
+      .set('Origin', renderOrigin)
+      .set('Access-Control-Request-Method', 'GET')
+      .set('Access-Control-Request-Headers', 'content-type')
+      .expect(204);
+
+    expect(meResponse.headers['access-control-allow-origin']).toBe(renderOrigin);
+    expect(meResponse.headers['access-control-allow-credentials']).toBe('true');
+  });
+
   it('rejects an unlisted origin with a typed 403', async () => {
     const response = await request(buildApp())
       .get('/api/health')
