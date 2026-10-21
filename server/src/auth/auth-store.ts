@@ -135,6 +135,12 @@ export interface AuthStore {
   }): Promise<CompanyInvitation>;
   findInvitationByToken(token: string): Promise<CompanyInvitation | null>;
   findInvitationById(id: string): Promise<CompanyInvitation | null>;
+  findPendingInvitationByEmail(companyId: string, email: string): Promise<CompanyInvitation | null>;
+  updatePendingInvitation(
+    id: string,
+    input: { token: string; role: 'admin' | 'editor' | 'viewer'; expiresAt: Date },
+  ): Promise<CompanyInvitation>;
+  deleteInvitation(id: string): Promise<void>;
   listCompanyInvitations(companyId: string): Promise<CompanyInvitation[]>;
   updateInvitationStatus(id: string, status: 'accepted' | 'revoked' | 'expired'): Promise<void>;
   findUserByEmail(email: string): Promise<UserWithCredentials | null>;
@@ -526,6 +532,57 @@ export class MySqlAuthStore implements AuthStore {
       'UPDATE company_invitations SET status = ? WHERE id = ?',
       [status, id],
     );
+  }
+
+  async findPendingInvitationByEmail(
+    companyId: string,
+    email: string,
+  ): Promise<CompanyInvitation | null> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT i.*, c.name AS company_name, u.display_name AS invited_by_name
+         FROM company_invitations i
+         JOIN companies c ON c.id = i.company_id
+         LEFT JOIN users u ON u.id = i.invited_by
+        WHERE i.company_id = ? AND i.email = ? AND i.status = 'pending'
+        LIMIT 1`,
+      [companyId, email],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      companyId: row.company_id,
+      companyName: row.company_name,
+      invitedBy: row.invited_by,
+      invitedByName: row.invited_by_name ?? null,
+      email: row.email,
+      role: row.role,
+      token: row.token,
+      status: row.status,
+      expiresAt: toDate(row.expires_at),
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
+    };
+  }
+
+  async updatePendingInvitation(
+    id: string,
+    input: { token: string; role: 'admin' | 'editor' | 'viewer'; expiresAt: Date },
+  ): Promise<CompanyInvitation> {
+    const now = new Date();
+    await this.pool.execute(
+      `UPDATE company_invitations
+          SET token = ?, role = ?, expires_at = ?, status = 'pending', updated_at = ?
+        WHERE id = ?`,
+      [input.token, input.role, input.expiresAt, now, id],
+    );
+    const updated = await this.findInvitationById(id);
+    if (!updated) throw new Error('Invitation record not found after update');
+    return updated;
+  }
+
+  async deleteInvitation(id: string): Promise<void> {
+    await this.pool.execute('DELETE FROM company_invitations WHERE id = ?', [id]);
   }
 
   async findUserByEmail(email: string): Promise<UserWithCredentials | null> {

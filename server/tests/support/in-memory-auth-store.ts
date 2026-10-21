@@ -182,6 +182,37 @@ export class InMemoryAuthStore implements AuthStore {
     }
   }
 
+  async findPendingInvitationByEmail(
+    companyId: string,
+    email: string,
+  ): Promise<CompanyInvitation | null> {
+    const normalized = email.trim().toLowerCase();
+    for (const inv of this.invitations.values()) {
+      if (inv.companyId === companyId && inv.email === normalized && inv.status === 'pending') {
+        return { ...inv };
+      }
+    }
+    return null;
+  }
+
+  async updatePendingInvitation(
+    id: string,
+    input: { token: string; role: 'admin' | 'editor' | 'viewer'; expiresAt: Date },
+  ): Promise<CompanyInvitation> {
+    const inv = this.invitations.get(id);
+    if (!inv) throw new Error('Invitation record not found in memory store');
+    inv.token = input.token;
+    inv.role = input.role;
+    inv.expiresAt = input.expiresAt;
+    inv.status = 'pending';
+    inv.updatedAt = new Date();
+    return { ...inv };
+  }
+
+  async deleteInvitation(id: string): Promise<void> {
+    this.invitations.delete(id);
+  }
+
   addUser(input: NewUserInput): UserWithCredentials {
     this.userSequence += 1;
     const user: UserWithCredentials = {

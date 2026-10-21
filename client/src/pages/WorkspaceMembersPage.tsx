@@ -92,7 +92,7 @@ export function WorkspaceMembersPage(): JSX.Element {
       const invite = result.data.invitation;
       const inviteUrl = `${window.location.origin}/register?invite=${encodeURIComponent(invite.token)}`;
       setLastInviteLink(inviteUrl);
-      setNotice(`Invitation created for ${invite.email}!`);
+      setNotice(`Invitation email sent to ${invite.email}!`);
       setInviteEmail('');
       void loadData();
     } catch (err) {
@@ -293,7 +293,10 @@ export function WorkspaceMembersPage(): JSX.Element {
 
           {lastInviteLink ? (
             <div className="alert alert-info" style={{ marginTop: '1.25rem' }}>
-              <strong>Direct Invitation Link:</strong>
+              <strong>Invitation Email Dispatched:</strong>
+              <p className="small muted" style={{ margin: '0.25rem 0 0.5rem 0' }}>
+                An email was sent with joining instructions. You can also share this direct link as a fallback:
+              </p>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', alignItems: 'center' }}>
                 <input
                   type="text"

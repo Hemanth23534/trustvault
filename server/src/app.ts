@@ -21,6 +21,7 @@ import { createHealthRouter, type DatabasePing } from './http/routes/health.js';
 import { createWorkspaceRouter } from './http/routes/workspace.js';
 import { AuthService, normalizeEmail } from './auth/auth-service.js';
 import { MySqlAuthStore, type AuthStore } from './auth/auth-store.js';
+import type { EmailService } from './email/email-service.js';
 import { createRateLimiter } from './auth/rate-limit.js';
 import { hashIpAddress, truncate } from './auth/tokens.js';
 import { MySqlDocumentActivityStore, type DocumentActivityStore } from './documents/activity-store.js';
@@ -41,6 +42,8 @@ export interface CreateAppOptions {
   pingDatabase?: DatabasePing;
   /** Injected by tests; defaults to the MySQL-backed auth store. */
   authStore?: AuthStore;
+  /** Injected by tests; defaults to Resend or console mock if unconfigured. */
+  emailService?: EmailService;
   /** Injected by tests; defaults to the MySQL document store. */
   documentStore?: DocumentStore;
   /** Injected by tests; defaults to the MySQL activity store. */
@@ -64,7 +67,13 @@ export function createApp(options: CreateAppOptions): Express {
   // The stores are lazy: constructing them never opens a socket, so health-only
   // tests and cold starts do not touch MySQL or the filesystem.
   const authStore: AuthStore = options.authStore ?? new MySqlAuthStore(getPool(env));
-  const authService = new AuthService({ store: authStore, env, clock, logger });
+  const authService = new AuthService({
+    store: authStore,
+    env,
+    emailService: options.emailService,
+    clock,
+    logger,
+  });
 
   const documentStore: DocumentStore =
     options.documentStore ?? new MySqlDocumentStore(getPool(env));

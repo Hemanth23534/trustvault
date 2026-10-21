@@ -15,6 +15,7 @@ const PRODUCTION = {
   SESSION_SECRET: STRONG_SECRET,
   CLIENT_ORIGINS: 'https://trustvault.app',
   DATABASE_PASSWORD: 'a-real-production-password',
+  RESEND_API_KEY: 're_production_test_key_12345',
 };
 
 function expectEnvError(raw: Record<string, string | undefined>): EnvValidationError {
@@ -215,6 +216,12 @@ describe('collectWarnings', () => {
 
   it('stays quiet for a fully configured production environment', () => {
     expect(collectWarnings(parseEnv(PRODUCTION))).toEqual([]);
+  });
+
+  it('warns in production if RESEND_API_KEY is not set', () => {
+    const { RESEND_API_KEY: _, ...noEmail } = PRODUCTION;
+    const warnings = collectWarnings(parseEnv(noEmail));
+    expect(warnings.some((warning) => warning.includes('RESEND_API_KEY is not set'))).toBe(true);
   });
 });
 

@@ -77,6 +77,11 @@ export interface Env {
   /** Absolute path to private, git-ignored document storage. */
   readonly storageDir: string;
   readonly maxUploadBytes: number;
+  readonly email: {
+    readonly resendApiKey?: string;
+    readonly fromEmail: string;
+    readonly frontendUrl: string;
+  };
 }
 
 export interface EnvIssue {
@@ -230,6 +235,11 @@ const envSchema = z
 
     STORAGE_DIR: z.string().min(1).default('./storage'),
     MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).max(104_857_600).default(10_485_760),
+
+    RESEND_API_KEY: z.string().trim().optional(),
+    INVITATION_FROM_EMAIL: z.string().trim().optional(),
+    EMAIL_FROM: z.string().trim().optional(),
+    FRONTEND_URL: z.string().trim().optional(),
   })
   .superRefine((value, ctx) => {
     const origins = splitOrigins(value.CLIENT_ORIGINS);
@@ -366,6 +376,17 @@ function toEnv(parsed: RawEnv): Env {
       ? path.normalize(parsed.STORAGE_DIR)
       : path.resolve(SERVER_ROOT, parsed.STORAGE_DIR),
     maxUploadBytes: parsed.MAX_UPLOAD_BYTES,
+    email: {
+      resendApiKey: parsed.RESEND_API_KEY || undefined,
+      fromEmail:
+        parsed.INVITATION_FROM_EMAIL ||
+        parsed.EMAIL_FROM ||
+        'TrustVault <onboarding@resend.dev>',
+      frontendUrl:
+        parsed.FRONTEND_URL ||
+        splitOrigins(parsed.CLIENT_ORIGINS).map(normalizeOrigin).find(Boolean) ||
+        'http://localhost:5173',
+    },
   };
 }
 
@@ -378,6 +399,8 @@ export function parseEnv(raw: Record<string, string | undefined> = process.env):
     ...raw,
     CLIENT_ORIGINS: raw.CLIENT_ORIGINS ?? raw.CLIENT_ORIGIN ?? raw.FRONTEND_URL ?? raw.CLIENT_URL,
     COOKIE_SECURE: raw.COOKIE_SECURE ?? raw.SESSION_COOKIE_SECURE,
+    FRONTEND_URL: raw.FRONTEND_URL ?? raw.CLIENT_URL,
+    INVITATION_FROM_EMAIL: raw.INVITATION_FROM_EMAIL ?? raw.EMAIL_FROM,
   };
 
   const dbUrl = raw.DATABASE_URL ?? raw.DATABASE_URI ?? raw.TIDB_URL;
@@ -443,6 +466,11 @@ export function collectWarnings(env: Env): string[] {
   if (!env.isProduction && env.session.sameSite === 'none') {
     warnings.push(
       'SESSION_COOKIE_SAME_SITE=none requires HTTPS and a Secure cookie; browsers drop it on plain-HTTP local development.',
+    );
+  }
+  if (env.isProduction && !env.email.resendApiKey) {
+    warnings.push(
+      'RESEND_API_KEY is not set. Employee invitation emails will not be delivered to real inboxes. Configure RESEND_API_KEY in Render.',
     );
   }
 

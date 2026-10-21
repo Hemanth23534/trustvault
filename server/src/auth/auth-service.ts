@@ -1,6 +1,7 @@
 import type { Env } from '../config/env.js';
 import type { Logger } from '../config/logger.js';
 import { AppError } from '../http/errors.js';
+import { createEmailService, type EmailService } from '../email/email-service.js';
 import type {
   AuditEventInput,
   AuditFilterParams,
@@ -70,6 +71,7 @@ export interface RequestContext {
 export interface AuthServiceOptions {
   store: AuthStore;
   env: Env;
+  emailService?: EmailService;
   clock?: () => Date;
   logger?: Logger;
 }
@@ -126,12 +128,14 @@ function invalidCredentials(): AuthError {
 export class AuthService {
   private readonly store: AuthStore;
   private readonly env: Env;
+  private readonly emailService: EmailService;
   private readonly clock: () => Date;
   private readonly logger: Logger | undefined;
 
   constructor(options: AuthServiceOptions) {
     this.store = options.store;
     this.env = options.env;
+    this.emailService = options.emailService ?? createEmailService(options.env, options.logger);
     this.clock = options.clock ?? (() => new Date());
     this.logger = options.logger;
   }
@@ -723,28 +727,79 @@ export class AuthService {
     const now = this.clock();
     const expiresAt = new Date(now.getTime() + 7 * 24 * 3600_000); // 7 days
 
-    const invitation = await this.store.createInvitation({
-      id: newId(),
-      companyId: actor.companyId,
-      invitedBy: actor.id,
-      email,
+    // Check if an active invitation already exists for this email in this company (safe retry)
+    const existingPending = await this.store.findPendingInvitationByEmail(actor.companyId, email);
+
+    let invitation: CompanyInvitation;
+    let isRetry = false;
+
+    if (existingPending) {
+      invitation = await this.store.updatePendingInvitation(existingPending.id, {
+        token: tokenHash,
+        role: input.role,
+        expiresAt,
+      });
+      isRetry = true;
+    } else {
+      invitation = await this.store.createInvitation({
+        id: newId(),
+        companyId: actor.companyId,
+        invitedBy: actor.id,
+        email,
+        role: input.role,
+        token: tokenHash,
+        expiresAt,
+        createdAt: now,
+      });
+    }
+
+    const company = await this.store.findCompanyById(actor.companyId);
+    const companyName = company?.name ?? 'Workspace';
+    const frontendUrl = this.env.email.frontendUrl.replace(/\/+$/, '');
+    const inviteUrl = `${frontendUrl}/register?invite=${encodeURIComponent(rawToken)}`;
+
+    // Await real email delivery from the email provider
+    const delivery = await this.emailService.sendInvitationEmail({
+      to: email,
+      companyName,
+      invitedByName: actor.displayName || actor.email,
       role: input.role,
-      token: tokenHash,
+      inviteUrl,
       expiresAt,
-      createdAt: now,
     });
+
+    if (!delivery.ok) {
+      // If delivery fails and this was a brand-new invitation, clean up the un-sent record
+      if (!isRetry) {
+        await this.store.deleteInvitation(invitation.id);
+      }
+      this.logger?.error(
+        {
+          companyId: actor.companyId,
+          targetEmail: email,
+          error: delivery.error,
+        },
+        'Invitation email failed to deliver',
+      );
+      throw new AuthError(
+        502,
+        'EMAIL_DELIVERY_FAILED',
+        `Failed to send invitation email: ${delivery.error || 'The email provider rejected the message'}.`,
+        { targetEmail: email },
+      );
+    }
 
     await this.audit({
       userId: actor.id,
       companyId: actor.companyId,
-      action: 'company.member_invited',
+      action: isRetry ? 'company.member_reinvited' : 'company.member_invited',
       outcome: 'success',
       resourceType: 'invitation',
       resourceId: invitation.id,
       ip: context?.ip,
       userAgent: context?.userAgent,
       requestId: context?.requestId,
-      metadata: { targetEmail: email, role: input.role },
+      metadata: { targetEmail: email, role: input.role, messageId: delivery.messageId },
     });
 
     // Return the unhashed raw token to the inviter so they can share the invite link

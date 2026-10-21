@@ -7,8 +7,9 @@ import { InMemoryDocumentActivityStore } from './support/in-memory-activity-stor
 import { InMemoryDocumentStore } from './support/in-memory-document-store.js';
 import { InMemoryDocumentStorage } from '../src/documents/storage.js';
 import { testEnv, testLogger } from './support/test-env.js';
+import type { EmailService } from '../src/email/email-service.js';
 
-function buildStack() {
+function buildStack(options?: { emailService?: EmailService }) {
   const env = testEnv();
   const authStore = new InMemoryAuthStore();
   const documentStore = new InMemoryDocumentStore();
@@ -23,6 +24,7 @@ function buildStack() {
     documentStore,
     documentActivityStore: activityStore,
     documentStorage: storage,
+    emailService: options?.emailService,
   });
 
   return { app, authStore, documentStore, activityStore };
@@ -574,5 +576,151 @@ describe('Workspace and Member Management', () => {
       .set('X-CSRF-Token', csrfB)
       .send({ role: 'viewer' })
       .expect(404);
+  });
+
+  it('sends an invitation email through EmailService with all metadata and invite link', async () => {
+    const sentEmails: any[] = [];
+    const mockEmailService: EmailService = {
+      async sendInvitationEmail(data) {
+        sentEmails.push(data);
+        return { ok: true, messageId: 'msg_test_123' };
+      },
+    };
+
+    const { app } = buildStack({ emailService: mockEmailService });
+
+    const ownerRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Julia Founder',
+        email: 'julia@solarenergy.local',
+        companyName: 'Solar Energy Corp',
+        password: 'Password2026!SolarEnergy',
+      })
+      .expect(201);
+
+    const cookie = ownerRes.headers['set-cookie']?.[0] ?? '';
+    const csrf = ownerRes.body.session.csrfToken;
+
+    const inviteRes = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrf)
+      .send({ email: 'kevin@solarenergy.local', role: 'admin' })
+      .expect(201);
+
+    expect(sentEmails).toHaveLength(1);
+    const sent = sentEmails[0];
+    expect(sent.to).toBe('kevin@solarenergy.local');
+    expect(sent.companyName).toBe('Solar Energy Corp');
+    expect(sent.invitedByName).toBe('Julia Founder');
+    expect(sent.role).toBe('admin');
+    expect(sent.inviteUrl).toContain('/register?invite=');
+    expect(sent.inviteUrl).toContain(inviteRes.body.invitation.token);
+    expect(sent.expiresAt).toBeInstanceOf(Date);
+  });
+
+  it('returns 502 EMAIL_DELIVERY_FAILED and rolls back database invitation when EmailService fails', async () => {
+    const failingEmailService: EmailService = {
+      async sendInvitationEmail() {
+        return { ok: false, error: 'Domain unverified on Resend account' };
+      },
+    };
+
+    const { app, authStore } = buildStack({ emailService: failingEmailService });
+
+    const ownerRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Leo Founder',
+        email: 'leo@quantum.local',
+        companyName: 'Quantum Logic',
+        password: 'Password2026!QuantumLogic',
+      })
+      .expect(201);
+
+    const cookie = ownerRes.headers['set-cookie']?.[0] ?? '';
+    const csrf = ownerRes.body.session.csrfToken;
+    const companyId = ownerRes.body.user.companyId;
+
+    const failRes = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrf)
+      .send({ email: 'maria@quantum.local', role: 'editor' })
+      .expect(502);
+
+    expect(failRes.body.error?.code).toBe('EMAIL_DELIVERY_FAILED');
+    expect(failRes.body.error?.message).toContain('Failed to send invitation email');
+
+    // Verify rollback: no phantom invitation record left in the database
+    const pending = await authStore.findPendingInvitationByEmail(companyId, 'maria@quantum.local');
+    expect(pending).toBeNull();
+  });
+
+  it('supports safe invitation retries by rotating token and updating existing pending invitation', async () => {
+    const sentEmails: any[] = [];
+    const mockEmailService: EmailService = {
+      async sendInvitationEmail(data) {
+        sentEmails.push(data);
+        return { ok: true, messageId: `msg_${sentEmails.length}` };
+      },
+    };
+
+    const { app, authStore } = buildStack({ emailService: mockEmailService });
+
+    const ownerRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Nora Founder',
+        email: 'nora@hyperdrive.local',
+        companyName: 'Hyperdrive Systems',
+        password: 'Password2026!Hyperdrive',
+      })
+      .expect(201);
+
+    const cookie = ownerRes.headers['set-cookie']?.[0] ?? '';
+    const csrf = ownerRes.body.session.csrfToken;
+    const companyId = ownerRes.body.user.companyId;
+
+    // First invitation attempt
+    const firstRes = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrf)
+      .send({ email: 'oscar@hyperdrive.local', role: 'viewer' })
+      .expect(201);
+
+    const firstToken = firstRes.body.invitation.token;
+    const firstId = firstRes.body.invitation.id;
+
+    // Retry sending invitation (e.g. employee didn't see first email, changing role to editor)
+    const secondRes = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrf)
+      .send({ email: 'oscar@hyperdrive.local', role: 'editor' })
+      .expect(201);
+
+    const secondToken = secondRes.body.invitation.token;
+    const secondId = secondRes.body.invitation.id;
+
+    // Re-used existing invitation ID
+    expect(secondId).toBe(firstId);
+    // Generated fresh unguessable token
+    expect(secondToken).not.toBe(firstToken);
+    expect(secondRes.body.invitation.role).toBe('editor');
+
+    // Both email deliveries attempted
+    expect(sentEmails).toHaveLength(2);
+    expect(sentEmails[0].inviteUrl).toContain(firstToken);
+    expect(sentEmails[1].inviteUrl).toContain(secondToken);
+    expect(sentEmails[1].role).toBe('editor');
+
+    // Database has only one pending invitation for this email
+    const pending = await authStore.findPendingInvitationByEmail(companyId, 'oscar@hyperdrive.local');
+    expect(pending).not.toBeNull();
+    expect(pending?.id).toBe(firstId);
+    expect(pending?.role).toBe('editor');
   });
 });
