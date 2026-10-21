@@ -1,7 +1,8 @@
 import type { Pool } from 'mysql2/promise';
 import { describe, expect, it } from 'vitest';
-import { checkDatabase, extractErrorCode } from '../src/db/pool.js';
+import { checkDatabase, createPool, extractErrorCode } from '../src/db/pool.js';
 import { resolveWithinStorage, STORAGE_DIR_MODE } from '../src/storage/private-storage.js';
+import { testEnv } from './support/test-env.js';
 
 describe('checkDatabase', () => {
   it('reports success and latency when the pool answers', async () => {
@@ -162,3 +163,92 @@ describe('SQL query parameter integrity (TiDB/MySQL)', () => {
     }
   });
 });
+
+describe('createPool connection event and promise handling', () => {
+  it('safely handles core mysql2 connection events without throwing non-promise query errors', async () => {
+    const env = testEnv();
+    const pool = createPool(env);
+
+    try {
+      let promiseQueryCalled = false;
+      let promiseQuerySql = '';
+
+      // Simulate the exact core mysql2 connection structure passed by inheritEvents
+      const mockCoreConnection = {
+        promise: () => ({
+          query: async (sql: string) => {
+            promiseQueryCalled = true;
+            promiseQuerySql = sql;
+            return [[], []];
+          },
+        }),
+        query: () => {
+          // If the listener mistakenly calls .catch() or .then() on this, it throws
+          return {
+            then() {
+              throw new Error(
+                'You have tried to call .then(), .catch(), or invoked await on the result of query that is not a promise',
+              );
+            },
+            catch() {
+              throw new Error(
+                'You have tried to call .then(), .catch(), or invoked await on the result of query that is not a promise',
+              );
+            },
+          };
+        },
+      };
+
+      // Emit 'connection' on the pool as mysql2 does upon opening a socket
+      expect(() => {
+        (pool as any).emit('connection', mockCoreConnection);
+      }).not.toThrow();
+
+      expect(promiseQueryCalled).toBe(true);
+      expect(promiseQuerySql).toBe("SET time_zone = '+00:00'");
+    } finally {
+      await pool.end().catch(() => {});
+    }
+  });
+
+  it('safely handles callback connections and rejects gracefully without uncaught exceptions', async () => {
+    const env = testEnv();
+    const pool = createPool(env);
+
+    try {
+      let callbackQueryCalled = false;
+      let callbackQuerySql = '';
+
+      const mockCallbackConnection = {
+        query: (sql: string, callback?: (err: unknown) => void) => {
+          callbackQueryCalled = true;
+          callbackQuerySql = sql;
+          if (callback) callback(null);
+        },
+      };
+
+      expect(() => {
+        (pool as any).emit('connection', mockCallbackConnection);
+      }).not.toThrow();
+
+      expect(callbackQueryCalled).toBe(true);
+      expect(callbackQuerySql).toBe("SET time_zone = '+00:00'");
+
+      // Also verify rejecting promise doesn't throw uncaught exception
+      const mockFailingConnection = {
+        promise: () => ({
+          query: async () => {
+            throw new Error('Connection lost');
+          },
+        }),
+      };
+
+      expect(() => {
+        (pool as any).emit('connection', mockFailingConnection);
+      }).not.toThrow();
+    } finally {
+      await pool.end().catch(() => {});
+    }
+  });
+});
+

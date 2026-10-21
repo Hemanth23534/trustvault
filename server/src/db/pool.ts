@@ -73,8 +73,28 @@ export function createPool(env: Env): Pool {
   // the two made `password_changed_at` (written with NOW()) appear hours in the
   // future, which invalidated freshly created sessions. One SET per connection
   // keeps SQL time and driver time in the same frame.
-  pool.on('connection', (connection) => {
-    void connection.query("SET time_zone = '+00:00'").catch(() => {});
+  //
+  // Note on mysql2/promise: the pool's 'connection' event receives the underlying
+  // core callback connection, not a PromisePoolConnection. Calling connection.query()
+  // directly returns a Query EventEmitter whose .then() and .catch() getters throw:
+  // "You have tried to call .then(), .catch(), or invoked await on the result of query that is not a promise".
+  // Invoking connection.promise().query() yields a real Promise, while connection.query(..., cb)
+  // handles callback-only connections safely.
+  pool.on('connection', (connection: unknown) => {
+    try {
+      const conn = connection as {
+        promise?: () => { query: (sql: string) => Promise<unknown> };
+        query?: (sql: string, callback?: (err: unknown) => void) => unknown;
+      };
+
+      if (typeof conn.promise === 'function') {
+        void conn.promise().query("SET time_zone = '+00:00'").catch(() => {});
+      } else if (typeof conn.query === 'function') {
+        conn.query("SET time_zone = '+00:00'", () => {});
+      }
+    } catch {
+      // Non-fatal if session time zone cannot be applied
+    }
   });
 
   return pool;
