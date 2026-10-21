@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type JSX } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { BrandMark } from '../components/BrandMark';
+import { LoadingBlock } from '../components/ui/Feedback';
 import { IconActivity, IconLock, IconShare, IconShield } from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
 import { extractErrorMessage, fetchInvitationDetails, type InvitationDetails } from '../lib/auth';
@@ -90,11 +91,20 @@ export function RegisterPage(): JSX.Element {
         return;
       }
       setUser(res.data.user);
-      navigate('/', { replace: true });
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not accept invitation.');
       setBusy(false);
     }
+  }
+
+  if (status === 'checking') {
+    return (
+      <div className="boot-screen">
+        <BrandMark />
+        <LoadingBlock label="Checking your session…" />
+      </div>
+    );
   }
 
   if (status === 'authenticated') {
@@ -172,7 +182,7 @@ export function RegisterPage(): JSX.Element {
                 <button
                   type="button"
                   className="button button-ghost button-block"
-                  onClick={() => navigate('/', { replace: true })}
+                  onClick={() => navigate('/dashboard', { replace: true })}
                   disabled={busy}
                 >
                   Return to Dashboard
@@ -183,7 +193,7 @@ export function RegisterPage(): JSX.Element {
         </div>
       );
     }
-    return <Navigate to="/" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {

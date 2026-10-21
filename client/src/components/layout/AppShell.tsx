@@ -28,7 +28,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: <IconDashboard />, end: true },
+  { to: '/dashboard', label: 'Dashboard', icon: <IconDashboard />, end: true },
   { to: '/documents', label: 'Documents', icon: <IconFile /> },
   { to: '/documents/new', label: 'Upload', icon: <IconUpload />, roles: ['admin', 'owner', 'editor'] },
   { to: '/history', label: 'Access history', icon: <IconActivity />, roles: ['admin', 'owner'] },
@@ -50,7 +50,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 function pageTitle(pathname: string): string {
-  if (pathname === '/') return 'Dashboard';
+  if (pathname === '/' || pathname === '/dashboard') return 'Dashboard';
   if (pathname === '/documents') return 'Documents';
   if (pathname === '/documents/new') return 'Upload document';
   if (pathname.startsWith('/documents/')) return 'Document details';
@@ -113,17 +113,21 @@ export function AppShell(): JSX.Element {
         </div>
 
         <nav className="sidebar-nav">
-          {visibleItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) => `nav-item ${isActive ? 'is-active' : ''}`}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+          {visibleItems.map((item) => {
+            const isDashboardItem = item.to === '/dashboard';
+            const isDashboardActive = isDashboardItem && (location.pathname === '/' || location.pathname === '/dashboard');
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) => `nav-item ${isActive || isDashboardActive ? 'is-active' : ''}`}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
         </nav>
 
         {user !== null && !user.companyId ? (

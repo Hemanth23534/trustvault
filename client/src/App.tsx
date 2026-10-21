@@ -27,6 +27,7 @@ export function App(): JSX.Element {
           <Route element={<RequireAuth />}>
             <Route element={<AppShell />}>
               <Route index element={<DashboardPage />} />
+              <Route path="dashboard" element={<DashboardPage />} />
               <Route path="documents" element={<DocumentsPage />} />
               <Route path="documents/:id" element={<DocumentDetailPage />} />
               <Route path="workspace/create" element={<CreateWorkspacePage />} />

@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent, type JSX } from 'react';
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { BrandMark } from '../components/BrandMark';
+import { LoadingBlock } from '../components/ui/Feedback';
 import { IconActivity, IconLock, IconShare, IconShield } from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
 import { fetchInvitationDetails, type InvitationDetails, extractErrorMessage } from '../lib/auth';
 import { roleLabel } from '../lib/format';
+import { getPostAuthRedirect } from '../lib/routes';
 
 const HIGHLIGHTS = [
   {
@@ -30,7 +32,7 @@ const HIGHLIGHTS = [
 ];
 
 export function LoginPage(): JSX.Element {
-  const { status, login, notice, clearNotice } = useAuth();
+  const { status, user, login, notice, clearNotice } = useAuth();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const inviteTokenParam = searchParams.get('invite') ?? '';
@@ -43,8 +45,6 @@ export function LoginPage(): JSX.Element {
   const [inviteDetails, setInviteDetails] = useState<InvitationDetails | null>(null);
 
   const requestedPath = (location.state as { from?: string } | null)?.from;
-  const redirectTo =
-    requestedPath !== undefined && requestedPath.startsWith('/') ? requestedPath : '/';
 
   useEffect(() => {
     if (!inviteTokenParam) return;
@@ -70,8 +70,18 @@ export function LoginPage(): JSX.Element {
     };
   }, [inviteTokenParam]);
 
+  if (status === 'checking') {
+    return (
+      <div className="boot-screen">
+        <BrandMark />
+        <LoadingBlock label="Checking your session…" />
+      </div>
+    );
+  }
+
   if (status === 'authenticated') {
-    return <Navigate to={redirectTo} replace />;
+    const destination = getPostAuthRedirect(requestedPath, user);
+    return <Navigate to={destination} replace />;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {

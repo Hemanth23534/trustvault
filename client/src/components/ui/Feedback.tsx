@@ -1,4 +1,5 @@
 import type { JSX, ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 
 export interface EmptyStateProps {
   icon?: ReactNode;
@@ -47,19 +48,26 @@ export function ErrorState({
 export function AccessDenied({
   title = 'Access denied',
   message = 'Your account does not have permission to view this page.',
+  dashboardLink = '/dashboard',
 }: {
   title?: string;
   message?: string;
+  dashboardLink?: string;
 }): JSX.Element {
   return (
     <div className="access-denied" role="alert">
       <span className="access-denied-code">403</span>
       <h2>{title}</h2>
       <p>{message}</p>
-      <p className="muted">
+      <p className="muted" style={{ marginBottom: '1.5rem' }}>
         This decision is enforced by the API, not by the interface. If you believe it is wrong,
         ask the document owner or an administrator.
       </p>
+      <div>
+        <Link to={dashboardLink} className="button button-primary">
+          Return to Dashboard
+        </Link>
+      </div>
     </div>
   );
 }
