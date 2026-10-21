@@ -195,6 +195,17 @@ export async function runMigrations(options: MigrationRunOptions): Promise<Migra
               executed += 1;
               continue;
             }
+            if (
+              err.code === 'ER_DUP_FIELDNAME' ||
+              err.code === 'ER_DUP_KEYNAME' ||
+              err.code === 'ER_FK_DUP_NAME' ||
+              err.message?.includes('Duplicate column') ||
+              err.message?.includes('Duplicate key')
+            ) {
+              log(`[warning] Schema element already exists, skipping: ${err.message ?? 'duplicate'}`);
+              executed += 1;
+              continue;
+            }
             throw stmtError;
           }
           executed += 1;

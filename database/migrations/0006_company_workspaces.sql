@@ -30,8 +30,12 @@ VALUES ('c0000000-0000-4000-a000-000000000001', 'TrustVault Demo Org', CURRENT_T
 
 -- 3. Add company_id to users ------------------------------------------------
 ALTER TABLE `users`
-  ADD COLUMN `company_id` CHAR(36) NULL AFTER `display_name`,
-  ADD KEY `idx_users_company_id` (`company_id`),
+  ADD COLUMN `company_id` CHAR(36) NULL AFTER `display_name`;
+
+ALTER TABLE `users`
+  ADD KEY `idx_users_company_id` (`company_id`);
+
+ALTER TABLE `users`
   ADD CONSTRAINT `fk_users_company`
     FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
     ON DELETE SET NULL
@@ -43,8 +47,12 @@ UPDATE `users`
 
 -- 4. Add company_id to documents --------------------------------------------
 ALTER TABLE `documents`
-  ADD COLUMN `company_id` CHAR(36) NULL AFTER `owner_id`,
-  ADD KEY `idx_documents_company_id` (`company_id`, `deleted_at`, `created_at`),
+  ADD COLUMN `company_id` CHAR(36) NULL AFTER `owner_id`;
+
+ALTER TABLE `documents`
+  ADD KEY `idx_documents_company_id` (`company_id`, `deleted_at`, `created_at`);
+
+ALTER TABLE `documents`
   ADD CONSTRAINT `fk_documents_company`
     FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
     ON DELETE CASCADE
@@ -59,5 +67,7 @@ UPDATE `documents`
 -- trg_audit_logs_no_update). Existing entries retain NULL company_id, and all new
 -- entries will record company_id.
 ALTER TABLE `audit_logs`
-  ADD COLUMN `company_id` CHAR(36) NULL AFTER `user_id`,
+  ADD COLUMN `company_id` CHAR(36) NULL AFTER `user_id`;
+
+ALTER TABLE `audit_logs`
   ADD KEY `idx_audit_logs_company_id` (`company_id`, `created_at`);
