@@ -189,6 +189,19 @@ export async function runMigrations(options: MigrationRunOptions): Promise<Migra
               executed += 1;
               continue;
             }
+            const isFkConstraint =
+              statement.toUpperCase().includes('CONSTRAINT') &&
+              statement.toUpperCase().includes('FOREIGN KEY') &&
+              (err.message?.includes('foreign key') ||
+                err.code === 'ER_CANNOT_ADD_FOREIGN' ||
+                err.code === 'ER_FK_CANNOT_OPEN' ||
+                err.code === 'ER_NOT_SUPPORTED_YET' ||
+                err.errno === 1105);
+            if (isFkConstraint) {
+              log(`[warning] Database engine does not support foreign key constraint. Skipping: ${err.message ?? 'unsupported'}`);
+              executed += 1;
+              continue;
+            }
             if (err.code === 'ER_UNKNOWN_COLLATION' || err.message?.includes('Unknown collation')) {
               const fallback = statement.replace(/COLLATE=utf8mb4_0900_ai_ci/gi, '');
               await connection.query(fallback);
