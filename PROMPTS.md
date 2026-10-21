@@ -345,5 +345,43 @@ changed:
   - **Automated test suite:** Replaced mock email tests with comprehensive in-app invitation tests in `server/tests/workspace-and-invitations.test.ts`. 283 tests passing across client and server.
 - **Verification:** `npm run typecheck` (0 errors), `npm test` (15 server suites / 252 tests + 4 client suites / 31 tests = 283 passed), `npm run build` (clean Vite + tsc bundle).
 
+---
+
+### Entry 14 — Fix SPA deep-linking 404 on `/register?invite=...`, database-backed revocation persistence, and member removal permissions cleanup
+- **Date:** 2026-10-21
+- **Intent:** Fix deep-link 404 on invitation URLs opened directly in new browser tabs/refresh on Render Static Sites, resolve reappearing revoked invitations/members on reload, clean up document permissions upon member removal, and provide an account-switching UX for mismatched invitations.
+- **Prompt (summary):** "Fix Bug 1: When I create an invitation, copy the invitation link, and open it using another account, the URL looks like `/register?invite=<token>`, but the browser displays a plain 'Not Found' page. Bug 2: When I revoke an invitation or access, the UI reports success, but after refreshing or reopening Members & Invitations, old users or invitations appear again. Bug 3: Invitation acceptance, workspace membership, invitation status, and revocation may not be consistently connected to persistent database state. Implement a dedicated invitation acceptance screen that reads the token safely, handle wrong recipients, partition active vs past invitations in the UI, ensure revocation and removal are backed by authoritative database queries, and add comprehensive regression tests."
+- **Root Causes:**
+  1. **Static Host SPA 404:** Render Static Site serves raw files; direct navigation to `/register?invite=...` returned 404 because no `register/index.html` static file existed and no rewrite route rule was active on the host.
+  2. **Revocation Re-Appearance:** `listCompanyInvitations(companyId)` in MySQL returns all workspace invitations regardless of status (`pending`, `revoked`, `accepted`, `expired`). The UI mapped over all returned rows under "Pending Invitations" with a Revoke button without filtering by status. Furthermore, mutation handlers in `WorkspaceMembersPage.tsx` did not check `res.ok`, performed optimistic state removal, and failed to refetch authoritative data with `await loadData()`.
+  3. **Document Access Retention:** Removing a member from a workspace (`company_id = NULL`) did not delete grants in `document_permissions` for that user on company documents.
+  4. **Seeding Member Resurrection:** `seed.ts` executed `company_id = COALESCE(company_id, DEMO_COMPANY_ID)` for existing accounts, re-attaching removed members upon deployment reboot.
+- **Result:**
+  - **SPA Fallback & Static Routes:**
+    - Created `render.yaml` with rewrite rule `source: /*, destination: /index.html`.
+    - Added `client/public/_redirects` (`/* /index.html 200`).
+    - Added `client/scripts/postbuild.js` to pre-generate physical directory entrypoints (`dist/register/index.html`, `dist/login/index.html`, `dist/accept-invite/index.html`, `dist/workspace/members/index.html`, etc.) along with `dist/404.html` and `dist/200.html`.
+  - **UI Partitioning & Mutation Handlers:**
+    - Filtered `invitations` in `WorkspaceMembersPage.tsx` into active `pendingInvitations` (`status === 'pending' && expiresAt > now`) and `pastInvitations` ("Invitation History" with clear badges: Accepted, Revoked, Expired, and no Revoke button).
+    - Added "Copy Link" action on every pending invitation row.
+    - Updated `handleRevokeInvite`, `handleRemoveMember`, and `handleChangeRole` to verify `res.ok`, display server error envelopes, and invoke `await loadData()`.
+  - **Backend Persistence & Immediate Enforcement:**
+    - Updated `AuthService.revokeInvitation` to reject revoking already-accepted invitations with 400 `INVITATION_ALREADY_ACCEPTED`.
+    - Added `removeCompanyMember(userId, companyId)` in `MySqlAuthStore` to set `company_id = NULL` and purge rows in `document_permissions` for that user on that company's documents.
+    - Updated `seed.ts` to preserve existing accounts' cleared `company_id`.
+  - **Account Mismatch Screen:**
+    - When an authenticated user visits `/register?invite=...` with a mismatched email, `RegisterPage.tsx` displays an account mismatch warning with a "Sign Out & Switch Account" button.
+  - **Automated Tests:**
+    - Added 3 new integration tests in `server/tests/workspace-and-invitations.test.ts` (17 tests total):
+      - Verifying revocation persistence across fresh database reads and rejecting revoke of accepted invitations.
+      - Confirming removed members lose session and access to company documents and downloads (404).
+      - Enforcing that unauthorized users (unauthenticated or viewers) cannot revoke invitations or remove members.
+    - Added client test in `client/src/lib/workspace.test.ts` testing state partitioning.
+- **Verification:**
+  - `npm run typecheck`: 0 errors.
+  - `npm test`: 19 test files, 287 tests passed (15 server suites / 255 tests + 4 client suites / 32 tests = 287 passing).
+  - `npm run build`: Clean production bundle (tsc + Vite + postbuild fallbacks).
+
+
 
 

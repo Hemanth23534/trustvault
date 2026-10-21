@@ -791,10 +791,12 @@ Lists pending invitations for the caller's workspace. Does not expose the secret
 - **Response `200`**: `{ "invitations": [ ... ] }`
 
 ### `DELETE /api/workspace/invitations/:id`
-Revokes a pending invitation immediately.
+Revokes a pending workspace invitation immediately. Persists `status = 'revoked'` in the database.
 - **Authentication**: Required (`owner` or `admin`).
 - **Headers**: `X-CSRF-Token`
 - **Response `204`**: No content.
+- **Response `400`**: If invitation has already been accepted (`INVITATION_ALREADY_ACCEPTED`).
+- **Response `404`**: If invitation does not exist in caller's workspace.
 
 ### `GET /api/workspace/invitations/verify`
 Public preview of an invitation token.
@@ -817,4 +819,17 @@ Accepts a pending invitation and joins the workspace. Enforces that the authenti
 - **Headers**: `X-CSRF-Token`
 - **Body**: `{ "token": "raw-secret-token" }`
 - **Response `200`**: `{ "user": { ... } }`
+
+### `DELETE /api/workspace/members/:userId`
+Removes a member from the workspace. Resets user role to `owner` with `company_id = NULL`, revokes all active sessions for that user, and immediately deletes any document-level grants in `document_permissions` for that user across the company's documents.
+- **Authentication**: Required (`owner` or `admin`). Workspace owner cannot be removed.
+- **Headers**: `X-CSRF-Token`
+- **Response `204`**: No content.
+
+### `PATCH /api/workspace/members/:userId/role`
+Updates a team member's role within the company workspace (`admin`, `editor`, `viewer`).
+- **Authentication**: Required (`owner` only).
+- **Headers**: `X-CSRF-Token`
+- **Body**: `{ "role": "editor" }`
+- **Response `204`**: No content.
 

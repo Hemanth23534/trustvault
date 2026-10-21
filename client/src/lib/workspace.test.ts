@@ -160,4 +160,36 @@ describe('workspace client API', () => {
     const [url] = fetchMock.mock.calls[0] as unknown as [string];
     expect(url).toContain('/api/workspace/invitations/verify?token=raw-token-xyz');
   });
+
+  it('correctly partitions invitations into pending vs past/history', () => {
+    const now = Date.parse('2026-10-21T12:00:00Z');
+    const future = new Date(now + 86400000).toISOString();
+    const past = new Date(now - 86400000).toISOString();
+
+    const invitations = [
+      { id: '1', email: 'pending@acme.com', role: 'viewer' as const, status: 'pending' as const, expiresAt: future, createdAt: past },
+      { id: '2', email: 'revoked@acme.com', role: 'editor' as const, status: 'revoked' as const, expiresAt: future, createdAt: past },
+      { id: '3', email: 'accepted@acme.com', role: 'admin' as const, status: 'accepted' as const, expiresAt: future, createdAt: past },
+      { id: '4', email: 'expired@acme.com', role: 'viewer' as const, status: 'expired' as const, expiresAt: past, createdAt: past },
+      { id: '5', email: 'pending-but-expired@acme.com', role: 'viewer' as const, status: 'pending' as const, expiresAt: past, createdAt: past },
+    ];
+
+    const pending = invitations.filter(
+      (inv) => inv.status === 'pending' && new Date(inv.expiresAt).getTime() > now,
+    );
+    const history = invitations.filter(
+      (inv) => inv.status !== 'pending' || new Date(inv.expiresAt).getTime() <= now,
+    );
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.email).toBe('pending@acme.com');
+
+    expect(history).toHaveLength(4);
+    expect(history.map((h) => h.email)).toEqual([
+      'revoked@acme.com',
+      'accepted@acme.com',
+      'expired@acme.com',
+      'pending-but-expired@acme.com',
+    ]);
+  });
 });

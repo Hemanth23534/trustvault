@@ -69,13 +69,13 @@ Everything below was executed and verified locally
 |-------|---------|--------|
 | Server type check | `npm run typecheck --workspace @trustvault/server` | ✅ 0 errors |
 | Client type check | `npm run typecheck --workspace @trustvault/client` | ✅ 0 errors |
-| Server tests | `npm run test:server` | ✅ 14 files, **215 tests passed** |
-| Client tests | `npm run test:client` | ✅ 3 files, **22 tests passed** |
-| Total automated test count | `npm test` | ✅ 17 files, **237 tests passed** |
-| Production build | `npm run build` | ✅ `server/dist` (tsc) + `client/dist` (Vite, 360.5 kB JS / 24.0 kB CSS) |
-| Workspace & invites suite | `npx vitest run tests/workspace-and-invitations.test.ts` | ✅ 4 tests passed (personal accounts, upgrade to company, invitations, settings) |
-| Company registration suite | `npx vitest run tests/company-registration.test.ts` | ✅ 5 tests passed (registration, duplicate 409, escalation block, tenant isolation) |
-| Security regression suite | `npx vitest run tests/security-regression.test.ts` | ✅ 5 tests passed (spray throttling, title redaction, revocation) |
+| Server tests | `npm run test:server` | ✅ 15 files, **255 tests passed** |
+| Client tests | `npm run test:client` | ✅ 4 files, **32 tests passed** |
+| Total automated test count | `npm test` | ✅ 19 files, **287 tests passed** |
+| Production build | `npm run build` | ✅ `server/dist` (tsc) + `client/dist` (Vite + postbuild SPA routes) |
+| Workspace & invites suite | `npx vitest run server/tests/workspace-and-invitations.test.ts` | ✅ 17 tests passed (invitations, revocation persistence, member doc revocation, RBAC) |
+| Company registration suite | `npx vitest run server/tests/company-registration.test.ts` | ✅ 5 tests passed (registration, duplicate 409, escalation block, tenant isolation) |
+| Security regression suite | `npx vitest run server/tests/security-regression.test.ts` | ✅ 5 tests passed (spray throttling, title redaction, revocation) |
 | Liveness | `GET /api/health` | ✅ 200 + Helmet headers, `X-Request-Id`, `no-store` |
 | Readiness (DB probe) | `GET /api/health/database` | ✅ 200 / 503 sanitized driver codes |
 | CORS allow/deny | `Origin: http://localhost:5173` vs untrusted | ✅ allow-list echoed vs 403 `ORIGIN_NOT_ALLOWED` |
@@ -968,6 +968,33 @@ A GitHub Actions workflow is provided at `.github/workflows/deploy-pages.yml` to
 > - GitHub Pages hosts **only static assets** (HTML, CSS, JS).
 > - It **cannot** host the Node.js Express backend, the MySQL 8 database, HttpOnly session cookies, or private document filesystem storage.
 > - Unless a real TrustVault API backend is deployed and configured via `VITE_API_BASE_URL`, authentication and document features on the GitHub Pages site will display connection errors when attempting to reach the server.
+
+---
+
+## Workspace Invitations, SPA Deep-Linking, and Revocation Persistence
+
+### 1. SPA Deep-Link Routing and Direct Refresh Fallback (Bug 1 Fix)
+- **Problem**: When navigating to `/register?invite=<token>` directly in a new tab or refreshing on Render Static Sites, the static file server returned plain HTTP 404 `Not Found` because client-side routes were not mapped to physical static files or an SPA fallback.
+- **Multi-Layered Solution**:
+  1. **Infrastructure Rewrite Rule**: Added root `render.yaml` defining a static site route rewrite (`source: /*`, `destination: /index.html`).
+  2. **Static Rewrite File**: Added `client/public/_redirects` (`/* /index.html 200`) automatically copied to build output.
+  3. **Build Fallback Generator (`client/scripts/postbuild.js`)**: Runs automatically after `vite build` to generate static entrypoints for common routes (`dist/register/index.html`, `dist/login/index.html`, `dist/accept-invite/index.html`, `dist/workspace/members/index.html`, etc.) along with `dist/404.html` and `dist/200.html`. Even without server-side rewrite rules, hosts serving directory indexes load the React application directly with zero 404 errors.
+  4. **Account Mismatch Detection**: On `/register?invite=...`, if an authenticated user opens an invite intended for a different email address, the UI renders an account mismatch alert with an explicit **Sign Out & Switch Account** button instead of letting an invalid acceptance fail silently.
+
+### 2. Revocation & Database State Persistence (Bug 2 & Bug 3 Fix)
+- **Problem**: When revoking an invitation or removing a member on `/workspace/members`, the item reappeared upon page refresh.
+- **Root Cause**:
+  1. `listCompanyInvitations(companyId)` in the database store returns all invitation rows for the company regardless of status (`pending`, `revoked`, `accepted`, `expired`).
+  2. The frontend rendered all records under `<h4>Pending Invitations</h4>` with a "Revoke" button, without checking `inv.status`.
+  3. Frontend action handlers failed to inspect `res.ok`, updating local React state optimistically without refetching authoritative server state.
+  4. Demo account seeding on startup re-assigned `company_id = COALESCE(company_id, DEMO_COMPANY_ID)`, re-attaching removed members to the demo company.
+- **Solution**:
+  1. **Partitioned Frontend State**: `WorkspaceMembersPage.tsx` splits invitations into active `pendingInvitations` (`status === 'pending' && expiresAt > now`) and historical `pastInvitations` (`status !== 'pending' || expiresAt <= now`).
+  2. **Separated UI Tables**: Pending invitations have "Copy Link" and "Revoke" actions; past invitations are displayed in an "Invitation History" table with status badges (`Accepted`, `Revoked`, `Expired`) and no Revoke button.
+  3. **Authoritative Server Sync**: Action handlers (`handleRevokeInvite`, `handleRemoveMember`, `handleChangeRole`) verify `res.ok`, extract server error envelopes upon failure, and call `await loadData()` upon success to synchronize with MySQL/TiDB.
+  4. **Document Permission Cleanup**: `removeCompanyMember` clears `company_id = NULL` and executes `DELETE FROM document_permissions` for that user on that company's documents, revoking active sessions.
+  5. **Idempotent Seeding**: `seed.ts` preserves existing users' company associations when seeding runs.
+
 
 
 

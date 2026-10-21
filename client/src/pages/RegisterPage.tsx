@@ -31,7 +31,7 @@ const HIGHLIGHTS = [
 ];
 
 export function RegisterPage(): JSX.Element {
-  const { status, user, setUser, csrfToken, register } = useAuth();
+  const { status, user, setUser, csrfToken, register, logout } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const inviteTokenParam = searchParams.get('invite') ?? '';
@@ -99,6 +99,12 @@ export function RegisterPage(): JSX.Element {
 
   if (status === 'authenticated') {
     if (inviteTokenParam) {
+      const isMismatch = Boolean(
+        user?.email &&
+          inviteDetails?.email &&
+          user.email.toLowerCase() !== inviteDetails.email.toLowerCase(),
+      );
+
       return (
         <div className="login-page">
           <section className="login-panel" style={{ maxWidth: 540, margin: '4rem auto' }}>
@@ -114,12 +120,24 @@ export function RegisterPage(): JSX.Element {
                   <p className="small">
                     Role: <strong>{roleLabel(inviteDetails.role)}</strong>
                   </p>
+                  <p className="small muted">
+                    Intended recipient: <strong>{inviteDetails.email}</strong>
+                  </p>
                 </div>
               ) : null}
 
-              <p className="small" style={{ marginBottom: '1.5rem' }}>
-                You are currently signed in as <strong>{user?.email}</strong>.
-              </p>
+              {isMismatch ? (
+                <div className="alert alert-warning" role="alert" style={{ margin: '1rem 0' }}>
+                  <strong>Account Mismatch:</strong>
+                  <p className="small" style={{ marginTop: '0.35rem' }}>
+                    This invitation was sent to <strong>{inviteDetails?.email}</strong>, but you are currently signed in as <strong>{user?.email}</strong>. Please switch accounts to accept.
+                  </p>
+                </div>
+              ) : (
+                <p className="small" style={{ marginBottom: '1.5rem' }}>
+                  You are currently signed in as <strong>{user?.email}</strong>.
+                </p>
+              )}
 
               {error !== null ? (
                 <p className="alert alert-error" role="alert" style={{ marginBottom: '1rem' }}>
@@ -128,21 +146,36 @@ export function RegisterPage(): JSX.Element {
               ) : null}
 
               <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
-                <button
-                  type="button"
-                  className="button button-primary button-block"
-                  onClick={() => void handleAcceptWhileLoggedIn()}
-                  disabled={busy}
-                >
-                  {busy ? 'Accepting invitation…' : 'Accept Invitation & Enter Workspace'}
-                </button>
+                {isMismatch ? (
+                  <button
+                    type="button"
+                    className="button button-primary button-block"
+                    onClick={() => {
+                      void logout().then(() => {
+                        navigate(`/register?invite=${encodeURIComponent(inviteTokenParam)}`, { replace: true });
+                      });
+                    }}
+                    disabled={busy}
+                  >
+                    Sign Out & Switch Account
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="button button-primary button-block"
+                    onClick={() => void handleAcceptWhileLoggedIn()}
+                    disabled={busy || !inviteDetails}
+                  >
+                    {busy ? 'Accepting invitation…' : 'Accept Invitation & Enter Workspace'}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="button button-ghost button-block"
                   onClick={() => navigate('/', { replace: true })}
                   disabled={busy}
                 >
-                  Go to Dashboard
+                  Return to Dashboard
                 </button>
               </div>
             </div>
@@ -264,9 +297,23 @@ export function RegisterPage(): JSX.Element {
           ) : null}
 
           {error !== null ? (
-            <p className="alert alert-error" role="alert">
-              {error}
-            </p>
+            <div className="alert alert-error" role="alert" style={{ marginBottom: '1rem' }}>
+              <p style={{ margin: 0 }}>{error}</p>
+              {inviteTokenParam && !inviteDetails ? (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <Link
+                    to="/register"
+                    className="button button-ghost button-sm"
+                    onClick={() => {
+                      setError(null);
+                      setInviteToken('');
+                    }}
+                  >
+                    Register standard account instead
+                  </Link>
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           <form className="login-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
@@ -374,7 +421,11 @@ export function RegisterPage(): JSX.Element {
               />
             </div>
 
-            <button className="button button-primary button-block" type="submit" disabled={busy}>
+            <button
+              className="button button-primary button-block"
+              type="submit"
+              disabled={busy || Boolean(inviteTokenParam && error && !inviteDetails)}
+            >
               {busy
                 ? 'Creating account…'
                 : inviteDetails

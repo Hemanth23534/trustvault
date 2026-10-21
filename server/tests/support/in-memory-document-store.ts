@@ -70,6 +70,14 @@ export class InMemoryDocumentStore implements DocumentStore {
     this.grants.get(documentId)?.delete(userId);
   }
 
+  revokeGrantsForUserInCompany(userId: string, companyId: string): void {
+    for (const [docId, doc] of this.documents.entries()) {
+      if (doc.companyId === companyId) {
+        this.grants.get(docId)?.delete(userId);
+      }
+    }
+  }
+
   private ownerOf(document: StoredDocument): { id: string; email: string; displayName: string | null } {
     const entry = this.directory.get(document.ownerId);
     return {

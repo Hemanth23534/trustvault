@@ -789,6 +789,13 @@ export class AuthService {
     if (!invite || invite.companyId !== actor.companyId) {
       throw new AuthError(404, 'INVITATION_NOT_FOUND', 'Invitation not found in this workspace.');
     }
+    if (invite.status === 'accepted') {
+      throw new AuthError(
+        400,
+        'INVITATION_ALREADY_ACCEPTED',
+        'This invitation has already been accepted. To remove this user, remove them from the workspace members list.',
+      );
+    }
     if (invite.status === 'revoked') {
       return;
     }
@@ -874,7 +881,7 @@ export class AuthService {
     }
 
     const now = this.clock();
-    await this.store.updateUserRoleAndCompany(targetUserId, null, 'owner');
+    await this.store.removeCompanyMember(targetUserId, actor.companyId);
     await this.store.revokeUserSessions(targetUserId, now);
 
     await this.audit({

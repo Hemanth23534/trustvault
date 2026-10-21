@@ -16,6 +16,10 @@ function buildStack() {
   const activityStore = new InMemoryDocumentActivityStore(documentStore, authStore);
   const storage = new InMemoryDocumentStorage();
 
+  authStore.onMemberRemoved = (userId: string, companyId: string) => {
+    documentStore.revokeGrantsForUserInCompany(userId, companyId);
+  };
+
   const app = createApp({
     env,
     logger: testLogger(env),
@@ -26,7 +30,7 @@ function buildStack() {
     documentStorage: storage,
   });
 
-  return { app, authStore, documentStore, activityStore };
+  return { app, authStore, documentStore, activityStore, storage };
 }
 
 describe('Workspace and Member Management', () => {
@@ -738,5 +742,281 @@ describe('Workspace and Member Management', () => {
       code: 'ETIMEDOUT',
       message: expect.stringContaining('timed out after 50ms'),
     });
+  });
+
+  it('verifies revocation persistence across database reads and rejects revoking accepted invitations', async () => {
+    const { app } = buildStack();
+
+    // 1. Register owner
+    const ownerRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Rachel Owner',
+        email: 'rachel@quantum.local',
+        companyName: 'Quantum Dynamics',
+        password: 'Password2026!Quantum',
+      })
+      .expect(201);
+
+    const ownerCookie = ownerRes.headers['set-cookie']?.[0] ?? '';
+    const ownerCsrf = ownerRes.body.session.csrfToken;
+
+    // 2. Create pending invitation
+    const inviteRes = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .send({ email: 'sam@quantum.local', role: 'viewer' })
+      .expect(201);
+
+    const inviteId = inviteRes.body.invitation.id;
+    const inviteToken = inviteRes.body.invitation.token;
+
+    // Verify initial read is 'pending'
+    const readInitial = await request(app)
+      .get('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .expect(200);
+
+    expect(readInitial.body.invitations).toHaveLength(1);
+    expect(readInitial.body.invitations[0].status).toBe('pending');
+
+    // 3. Revoke invitation
+    await request(app)
+      .delete(`/api/workspace/invitations/${inviteId}`)
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .expect(204);
+
+    // 4. Fresh database read confirms 'revoked' status persists
+    const readAfterRevoke = await request(app)
+      .get('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .expect(200);
+
+    expect(readAfterRevoke.body.invitations).toHaveLength(1);
+    expect(readAfterRevoke.body.invitations[0].id).toBe(inviteId);
+    expect(readAfterRevoke.body.invitations[0].status).toBe('revoked');
+
+    // 5. Accepting revoked invitation is rejected
+    const acceptRevoked = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Sam Viewer',
+        email: 'sam@quantum.local',
+        password: 'Password2026!SamViewer',
+        inviteToken,
+      })
+      .expect(410);
+
+    expect(acceptRevoked.body.error?.code).toBe('INVITATION_REVOKED');
+
+    // 6. Create a second invitation and accept it
+    const secondInviteRes = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .send({ email: 'tina@quantum.local', role: 'editor' })
+      .expect(201);
+
+    const secondInviteId = secondInviteRes.body.invitation.id;
+    const secondToken = secondInviteRes.body.invitation.token;
+
+    await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Tina Editor',
+        email: 'tina@quantum.local',
+        password: 'Password2026!TinaEditor',
+        inviteToken: secondToken,
+      })
+      .expect(201);
+
+    // 7. Verify fresh read shows second invite as 'accepted'
+    const readAfterAccept = await request(app)
+      .get('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .expect(200);
+
+    const acceptedInv = readAfterAccept.body.invitations.find((i: any) => i.id === secondInviteId);
+    expect(acceptedInv?.status).toBe('accepted');
+
+    // 8. Attempting to revoke an ALREADY ACCEPTED invitation returns 400
+    const revokeAccepted = await request(app)
+      .delete(`/api/workspace/invitations/${secondInviteId}`)
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .expect(400);
+
+    expect(revokeAccepted.body.error?.code).toBe('INVITATION_ALREADY_ACCEPTED');
+  });
+
+  it('confirming revoked members immediately lose access to company documents and downloads', async () => {
+    const { app, storage } = buildStack();
+
+    // 1. Register owner
+    const ownerRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Victor Owner',
+        email: 'victor@vaultcorp.local',
+        companyName: 'Vault Corp',
+        password: 'Password2026!VaultCorp',
+      })
+      .expect(201);
+
+    const ownerCookie = ownerRes.headers['set-cookie']?.[0] ?? '';
+    const ownerCsrf = ownerRes.body.session.csrfToken;
+
+    // 2. Owner uploads a PDF document
+    const pdfBuffer = Buffer.from('%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n', 'utf8');
+    const uploadRes = await request(app)
+      .post('/api/documents')
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .field('title', 'Confidential Contract')
+      .field('category', 'contract')
+      .attach('file', pdfBuffer, { filename: 'contract.pdf', contentType: 'application/pdf' })
+      .expect(201);
+
+    const documentId = uploadRes.body.document.id;
+    expect(documentId).toBeDefined();
+
+    // 3. Owner invites member as editor
+    const inviteRes = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .send({ email: 'wendy@vaultcorp.local', role: 'editor' })
+      .expect(201);
+
+    // 4. Wendy registers with invite token
+    const wendyRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Wendy Colleague',
+        email: 'wendy@vaultcorp.local',
+        password: 'Password2026!WendyColleague',
+        inviteToken: inviteRes.body.invitation.token,
+      })
+      .expect(201);
+
+    const wendyId = wendyRes.body.user.id;
+    const wendyCookie = wendyRes.headers['set-cookie']?.[0] ?? '';
+
+    // 5. Owner grants Wendy viewer access to the document
+    await request(app)
+      .post(`/api/documents/${documentId}/permissions`)
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .send({ email: 'wendy@vaultcorp.local', role: 'viewer' })
+      .expect(200);
+
+    // 6. Wendy can access the document
+    await request(app)
+      .get(`/api/documents/${documentId}`)
+      .set('Cookie', wendyCookie)
+      .expect(200);
+
+    // 7. Owner removes Wendy from the workspace
+    await request(app)
+      .delete(`/api/workspace/members/${wendyId}`)
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .expect(204);
+
+    // 8. Wendy's existing session cookie is immediately invalidated
+    await request(app)
+      .get(`/api/documents/${documentId}`)
+      .set('Cookie', wendyCookie)
+      .expect(401);
+
+    // 9. Wendy signs in again as a personal user (company_id is null)
+    const wendyLogin = await request(app)
+      .post('/api/auth/login')
+      .send({
+        email: 'wendy@vaultcorp.local',
+        password: 'Password2026!WendyColleague',
+      })
+      .expect(200);
+
+    const wendyNewCookie = wendyLogin.headers['set-cookie']?.[0] ?? '';
+
+    // 10. Wendy CANNOT access or download the Vault Corp company document
+    await request(app)
+      .get(`/api/documents/${documentId}`)
+      .set('Cookie', wendyNewCookie)
+      .expect(404);
+
+    await request(app)
+      .get(`/api/documents/${documentId}/download`)
+      .set('Cookie', wendyNewCookie)
+      .expect(404);
+  });
+
+  it('enforces that unauthorized users cannot revoke invitations or remove members', async () => {
+    const { app } = buildStack();
+
+    // 1. Owner creates workspace
+    const ownerRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Xavier Owner',
+        email: 'xavier@secshield.local',
+        companyName: 'SecShield Inc',
+        password: 'Password2026!SecShield',
+      })
+      .expect(201);
+
+    const ownerCookie = ownerRes.headers['set-cookie']?.[0] ?? '';
+    const ownerCsrf = ownerRes.body.session.csrfToken;
+
+    // 2. Owner invites viewer
+    const inviteRes = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .send({ email: 'yara@secshield.local', role: 'viewer' })
+      .expect(201);
+
+    const inviteId = inviteRes.body.invitation.id;
+
+    // 3. Yara registers as viewer
+    const yaraRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Yara Viewer',
+        email: 'yara@secshield.local',
+        password: 'Password2026!YaraViewer',
+        inviteToken: inviteRes.body.invitation.token,
+      })
+      .expect(201);
+
+    const yaraCookie = yaraRes.headers['set-cookie']?.[0] ?? '';
+    const yaraCsrf = yaraRes.body.session.csrfToken;
+
+    // 4. Unauthenticated user cannot revoke invitation -> 401
+    await request(app)
+      .delete(`/api/workspace/invitations/${inviteId}`)
+      .expect(401);
+
+    // 5. Unauthenticated user cannot remove member -> 401
+    await request(app)
+      .delete(`/api/workspace/members/${yaraRes.body.user.id}`)
+      .expect(401);
+
+    // 6. Viewer (Yara) cannot revoke invitation -> 403
+    await request(app)
+      .delete(`/api/workspace/invitations/${inviteId}`)
+      .set('Cookie', yaraCookie)
+      .set('X-CSRF-Token', yaraCsrf)
+      .expect(403);
+
+    // 7. Viewer (Yara) cannot remove owner -> 403
+    await request(app)
+      .delete(`/api/workspace/members/${ownerRes.body.user.id}`)
+      .set('Cookie', yaraCookie)
+      .set('X-CSRF-Token', yaraCsrf)
+      .expect(403);
   });
 });

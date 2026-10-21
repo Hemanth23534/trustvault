@@ -117,6 +117,8 @@ export class InMemoryAuthStore implements AuthStore {
       }));
   }
 
+  onMemberRemoved?: (userId: string, companyId: string) => void;
+
   async updateUserRoleAndCompany(userId: string, companyId: string | null, role: UserRole): Promise<void> {
     const user = this.users.get(userId);
     if (user) {
@@ -124,6 +126,16 @@ export class InMemoryAuthStore implements AuthStore {
       user.companyName = companyId ? this.companies.get(companyId)?.name ?? null : null;
       user.role = role;
     }
+  }
+
+  async removeCompanyMember(userId: string, companyId: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.companyId = null;
+      user.companyName = null;
+      user.role = 'owner';
+    }
+    this.onMemberRemoved?.(userId, companyId);
   }
 
   async createInvitation(input: {
@@ -169,9 +181,16 @@ export class InMemoryAuthStore implements AuthStore {
   }
 
   async listCompanyInvitations(companyId: string): Promise<CompanyInvitation[]> {
+    const now = Date.now();
     return [...this.invitations.values()]
       .filter((i) => i.companyId === companyId)
-      .map((i) => ({ ...i }));
+      .map((i) => {
+        let status = i.status;
+        if (status === 'pending' && i.expiresAt.getTime() <= now) {
+          status = 'expired';
+        }
+        return { ...i, status };
+      });
   }
 
   async updateInvitationStatus(id: string, status: 'accepted' | 'revoked' | 'expired'): Promise<void> {

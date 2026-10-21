@@ -120,18 +120,16 @@ export async function seed(
       await pool.execute(
         `UPDATE users
             SET display_name = ?, role = ?, is_active = 1, password_hash = ?,
-                company_id = COALESCE(company_id, ?),
                 password_changed_at = ?, failed_login_count = 0, locked_until = NULL
           WHERE id = ?`,
-        [account.displayName, account.role, passwordHash, DEMO_COMPANY_ID, now, existing.id],
+        [account.displayName, account.role, passwordHash, now, existing.id],
       );
     } else {
       await pool.execute(
         `UPDATE users
-            SET display_name = ?, role = ?, is_active = 1,
-                company_id = COALESCE(company_id, ?)
+            SET display_name = ?, role = ?, is_active = 1
           WHERE id = ?`,
-        [account.displayName, account.role, DEMO_COMPANY_ID, existing.id],
+        [account.displayName, account.role, existing.id],
       );
     }
 

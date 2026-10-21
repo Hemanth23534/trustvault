@@ -124,6 +124,7 @@ export interface AuthStore {
   createUser(input: CreateUserInput): Promise<UserWithCredentials>;
   listCompanyUsers(companyId: string): Promise<AuthUser[]>;
   updateUserRoleAndCompany(userId: string, companyId: string | null, role: UserRole): Promise<void>;
+  removeCompanyMember(userId: string, companyId: string): Promise<void>;
   createInvitation(input: {
     id: string;
     companyId: string;
@@ -413,6 +414,28 @@ export class MySqlAuthStore implements AuthStore {
     );
   }
 
+  async removeCompanyMember(userId: string, companyId: string): Promise<void> {
+    await withDbTimeout(
+      this.pool.execute(
+        'UPDATE users SET company_id = NULL, role = ? WHERE id = ?',
+        ['owner', userId],
+      ),
+      5_000,
+      'removeCompanyMember.updateUser',
+    );
+
+    await withDbTimeout(
+      this.pool.execute(
+        `DELETE p FROM document_permissions p
+          INNER JOIN documents d ON d.id = p.document_id
+         WHERE p.user_id = ? AND d.company_id = ?`,
+        [userId, companyId],
+      ),
+      5_000,
+      'removeCompanyMember.revokePermissions',
+    );
+  }
+
   async createInvitation(input: {
     id: string;
     companyId: string;
@@ -538,26 +561,34 @@ export class MySqlAuthStore implements AuthStore {
       5_000,
       'listCompanyInvitations',
     );
-    return rows.map((row) => ({
-      id: row.id,
-      companyId: row.company_id,
-      companyName: row.company_name ?? 'Workspace',
-      invitedBy: row.invited_by,
-      invitedByName: row.invited_by_name ?? null,
-      email: row.email,
-      role: row.role,
-      token: row.token,
-      status: row.status,
-      expiresAt: toDate(row.expires_at),
-      createdAt: toDate(row.created_at),
-      updatedAt: toDate(row.updated_at),
-    }));
+    const now = Date.now();
+    return rows.map((row) => {
+      const expiresAt = toDate(row.expires_at);
+      let status = row.status;
+      if (status === 'pending' && expiresAt.getTime() <= now) {
+        status = 'expired';
+      }
+      return {
+        id: row.id,
+        companyId: row.company_id,
+        companyName: row.company_name ?? 'Workspace',
+        invitedBy: row.invited_by,
+        invitedByName: row.invited_by_name ?? null,
+        email: row.email,
+        role: row.role,
+        token: row.token,
+        status,
+        expiresAt,
+        createdAt: toDate(row.created_at),
+        updatedAt: toDate(row.updated_at),
+      };
+    });
   }
 
   async updateInvitationStatus(id: string, status: 'accepted' | 'revoked' | 'expired'): Promise<void> {
     await withDbTimeout(
       this.pool.execute(
-        'UPDATE company_invitations SET status = ? WHERE id = ?',
+        'UPDATE company_invitations SET status = ?, updated_at = NOW() WHERE id = ?',
         [status, id],
       ),
       5_000,

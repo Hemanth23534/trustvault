@@ -34,6 +34,14 @@ export function WorkspaceMembersPage(): JSX.Element {
   const isAdmin = user?.role === 'admin';
   const canManage = isOwner || isAdmin;
 
+  const now = Date.now();
+  const pendingInvitations = invitations.filter(
+    (inv) => inv.status === 'pending' && new Date(inv.expiresAt).getTime() > now,
+  );
+  const pastInvitations = invitations.filter(
+    (inv) => inv.status !== 'pending' || new Date(inv.expiresAt).getTime() <= now,
+  );
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -118,48 +126,64 @@ export function WorkspaceMembersPage(): JSX.Element {
 
   async function handleRevokeInvite(id: string): Promise<void> {
     if (!csrfToken) {
-      setError('Security token not ready.');
+      setError('Security token not ready. Reload the page and try again.');
       return;
     }
+    setError(null);
+    setNotice(null);
     try {
-      await revokeWorkspaceInvitation(id, csrfToken);
-      setInvitations((prev) => prev.filter((i) => i.id !== id));
-      setNotice('Invitation revoked.');
-    } catch {
-      setError('Could not revoke invitation.');
+      const res = await revokeWorkspaceInvitation(id, csrfToken);
+      if (!res.ok) {
+        setError(extractErrorMessage(res.data) ?? 'Could not revoke invitation.');
+        return;
+      }
+      setNotice('Invitation revoked successfully.');
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not revoke invitation.');
     }
   }
 
   async function handleRemoveMember(member: AuthUser): Promise<void> {
     if (!csrfToken) {
-      setError('Security token not ready.');
+      setError('Security token not ready. Reload the page and try again.');
       return;
     }
     if (!confirm(`Are you sure you want to remove ${member.displayName ?? member.email} from the workspace?`)) {
       return;
     }
+    setError(null);
+    setNotice(null);
     try {
-      await removeWorkspaceMember(member.id, csrfToken);
-      setMembers((prev) => prev.filter((m) => m.id !== member.id));
-      setNotice(`Removed ${member.displayName ?? member.email}.`);
-    } catch {
-      setError('Could not remove member.');
+      const res = await removeWorkspaceMember(member.id, csrfToken);
+      if (!res.ok) {
+        setError(extractErrorMessage(res.data) ?? 'Could not remove member.');
+        return;
+      }
+      setNotice(`Removed ${member.displayName ?? member.email} from workspace.`);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove member.');
     }
   }
 
   async function handleChangeRole(memberId: string, newRole: UserRole): Promise<void> {
     if (!csrfToken) {
-      setError('Security token not ready.');
+      setError('Security token not ready. Reload the page and try again.');
       return;
     }
+    setError(null);
+    setNotice(null);
     try {
-      await updateWorkspaceMemberRole(memberId, newRole, csrfToken);
-      setMembers((prev) =>
-        prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)),
-      );
-      setNotice('Role updated.');
-    } catch {
-      setError('Could not update role.');
+      const res = await updateWorkspaceMemberRole(memberId, newRole, csrfToken);
+      if (!res.ok) {
+        setError(extractErrorMessage(res.data) ?? 'Failed to update member role.');
+        return;
+      }
+      setNotice('Member role updated successfully.');
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update role.');
     }
   }
 
@@ -332,7 +356,7 @@ export function WorkspaceMembersPage(): JSX.Element {
             </div>
           ) : null}
 
-          {invitations.length > 0 ? (
+          {pendingInvitations.length > 0 ? (
             <div style={{ marginTop: '1.75rem' }}>
               <h4 style={{ marginBottom: '0.75rem' }}>Pending Invitations</h4>
               <div className="table-wrap">
@@ -346,22 +370,87 @@ export function WorkspaceMembersPage(): JSX.Element {
                     </tr>
                   </thead>
                   <tbody>
-                    {invitations.map((inv) => (
-                      <tr key={inv.id}>
-                        <td>{inv.email}</td>
-                        <td><span className="badge badge-neutral">{roleLabel(inv.role)}</span></td>
-                        <td>{formatDate(inv.expiresAt)}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            className="button button-ghost button-sm"
-                            onClick={() => void handleRevokeInvite(inv.id)}
-                          >
-                            Revoke
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {pendingInvitations.map((inv) => {
+                      const inviteUrl = `${window.location.origin}/register?invite=${encodeURIComponent(inv.token)}`;
+                      return (
+                        <tr key={inv.id}>
+                          <td><strong>{inv.email}</strong></td>
+                          <td><span className="badge badge-neutral">{roleLabel(inv.role)}</span></td>
+                          <td>{formatDate(inv.expiresAt)}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className="button button-secondary button-sm"
+                              style={{ marginRight: '0.5rem' }}
+                              onClick={() => {
+                                void navigator.clipboard.writeText(inviteUrl);
+                                setNotice(`Invitation link for ${inv.email} copied to clipboard!`);
+                              }}
+                            >
+                              Copy Link
+                            </button>
+                            <button
+                              type="button"
+                              className="button button-ghost button-sm"
+                              style={{ color: 'var(--color-error)' }}
+                              onClick={() => void handleRevokeInvite(inv.id)}
+                            >
+                              Revoke
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: '1.75rem' }}>
+              <h4 style={{ marginBottom: '0.5rem' }}>Pending Invitations</h4>
+              <p className="muted small" style={{ margin: 0 }}>
+                No pending invitations. Create one above to invite team members.
+              </p>
+            </div>
+          )}
+
+          {pastInvitations.length > 0 ? (
+            <div style={{ marginTop: '2rem' }}>
+              <h4 style={{ marginBottom: '0.75rem' }}>Invitation History</h4>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Status</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pastInvitations.map((inv) => {
+                      const statusBadge =
+                        inv.status === 'accepted' ? (
+                          <span className="badge badge-success">Accepted</span>
+                        ) : inv.status === 'revoked' ? (
+                          <span className="badge badge-neutral" style={{ color: 'var(--color-error)' }}>
+                            Revoked
+                          </span>
+                        ) : (
+                          <span className="badge badge-neutral">Expired</span>
+                        );
+
+                      return (
+                        <tr key={inv.id}>
+                          <td>{inv.email}</td>
+                          <td>
+                            <span className="badge badge-neutral">{roleLabel(inv.role)}</span>
+                          </td>
+                          <td>{statusBadge}</td>
+                          <td>{formatDate(inv.updatedAt || inv.createdAt)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
