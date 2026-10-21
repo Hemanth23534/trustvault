@@ -37,6 +37,14 @@ export function createWorkspaceRouter(options: WorkspaceRouterOptions): Router {
   const guard = requireAuth({ service, env });
   const router = Router();
 
+  /** GET /api/workspace/invitations/verify — public verification of an invitation token. */
+  router.get('/invitations/verify', async (req, res) => {
+    const token = typeof req.query.token === 'string' ? req.query.token : '';
+    const details = await service.getInvitationDetails(token);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json(details);
+  });
+
   /** GET /api/workspace — get current workspace status (company vs personal). */
   router.get('/', guard, async (req, res) => {
     const actor = requireAuthContext(req).user;

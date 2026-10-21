@@ -1,8 +1,10 @@
-import { useState, type FormEvent, type JSX } from 'react';
-import { Link, Navigate, useLocation } from 'react-router-dom';
+import { useEffect, useState, type FormEvent, type JSX } from 'react';
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { BrandMark } from '../components/BrandMark';
 import { IconActivity, IconLock, IconShare, IconShield } from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
+import { fetchInvitationDetails, type InvitationDetails, extractErrorMessage } from '../lib/auth';
+import { roleLabel } from '../lib/format';
 
 const HIGHLIGHTS = [
   {
@@ -30,15 +32,43 @@ const HIGHLIGHTS = [
 export function LoginPage(): JSX.Element {
   const { status, login, notice, clearNotice } = useAuth();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const inviteTokenParam = searchParams.get('invite') ?? '';
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inviteDetails, setInviteDetails] = useState<InvitationDetails | null>(null);
 
   const requestedPath = (location.state as { from?: string } | null)?.from;
   const redirectTo =
     requestedPath !== undefined && requestedPath.startsWith('/') ? requestedPath : '/';
+
+  useEffect(() => {
+    if (!inviteTokenParam) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetchInvitationDetails(inviteTokenParam);
+        if (cancelled) return;
+        if (res.ok) {
+          setInviteDetails(res.data);
+          setEmail(res.data.email);
+        } else {
+          setError(extractErrorMessage(res.data) ?? 'Invalid or expired invitation.');
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not verify invitation.');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteTokenParam]);
 
   if (status === 'authenticated') {
     return <Navigate to={redirectTo} replace />;
@@ -50,7 +80,7 @@ export function LoginPage(): JSX.Element {
     setError(null);
     clearNotice();
 
-    const outcome = await login(email.trim(), password);
+    const outcome = await login(email.trim(), password, inviteTokenParam || undefined);
     if (!outcome.ok) {
       setError(outcome.message ?? 'Sign-in failed.');
     }
@@ -96,6 +126,17 @@ export function LoginPage(): JSX.Element {
             <h2>Sign in</h2>
             <p className="muted">Use your TrustVault account to continue.</p>
           </header>
+
+          {inviteTokenParam && inviteDetails ? (
+            <div className="alert alert-info" role="status" style={{ marginBottom: '1rem' }}>
+              <strong>Workspace Invitation</strong>
+              <p className="small">
+                Sign in as <strong>{inviteDetails.email}</strong> to accept your invitation to join{' '}
+                <strong>{inviteDetails.companyName}</strong> as{' '}
+                <strong>{roleLabel(inviteDetails.role)}</strong>.
+              </p>
+            </div>
+          ) : null}
 
           {notice !== null ? (
             <p className="alert alert-info" role="status">
@@ -149,15 +190,33 @@ export function LoginPage(): JSX.Element {
             </div>
 
             <button className="button button-primary button-block" type="submit" disabled={busy}>
-              {busy ? 'Signing in…' : 'Sign in'}
+              {busy
+                ? 'Signing in…'
+                : inviteDetails
+                  ? `Sign in & Join ${inviteDetails.companyName}`
+                  : 'Sign in'}
             </button>
           </form>
 
           <p className="login-hint" style={{ marginTop: '1.25rem', textAlign: 'center' }}>
-            New company or organization?{' '}
-            <Link to="/register" style={{ fontWeight: 600, color: 'var(--color-brand)' }}>
-              Register company workspace
-            </Link>
+            {inviteTokenParam ? (
+              <>
+                Don&apos;t have an account yet?{' '}
+                <Link
+                  to={`/register?invite=${encodeURIComponent(inviteTokenParam)}`}
+                  style={{ fontWeight: 600, color: 'var(--color-brand)' }}
+                >
+                  Create your account here
+                </Link>
+              </>
+            ) : (
+              <>
+                New company or organization?{' '}
+                <Link to="/register" style={{ fontWeight: 600, color: 'var(--color-brand)' }}>
+                  Register company workspace
+                </Link>
+              </>
+            )}
           </p>
 
           <p className="login-hint">

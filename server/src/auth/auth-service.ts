@@ -14,7 +14,9 @@ import { hashPassword, verifyAgainstDummyHash, verifyPassword } from './password
 import {
   constantTimeEqual,
   generateCsrfToken,
+  generateInvitationToken,
   generateSessionToken,
+  hashInvitationToken,
   hashIpAddress,
   hashSessionToken,
   newId,
@@ -32,11 +34,20 @@ export class AuthError extends AppError {
 export interface LoginInput {
   email: string;
   password: string;
+  inviteToken?: string | undefined;
   ip?: string | undefined;
   userAgent?: string | undefined;
   requestId?: string | undefined;
   /** A session cookie presented alongside the login request (fixation defence). */
   existingToken?: string | null;
+}
+
+export interface InvitationPublicDetails {
+  email: string;
+  companyName: string;
+  role: 'admin' | 'editor' | 'viewer';
+  status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  expiresAt: Date;
 }
 
 export interface LoginResult {
@@ -70,7 +81,6 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-import { randomBytes } from 'node:crypto';
 import type { Company, CompanyInvitation, UserRole } from './types.js';
 
 export interface RegisterUserInput {
@@ -126,6 +136,46 @@ export class AuthService {
     this.logger = options.logger;
   }
 
+  private async resolveInvitation(rawToken: string, now: Date): Promise<CompanyInvitation> {
+    const trimmed = rawToken.trim();
+    if (!trimmed) {
+      throw new AuthError(400, 'INVALID_INVITATION', 'Invitation token is required.');
+    }
+    const tokenHash = hashInvitationToken(trimmed);
+    let invite = await this.store.findInvitationByToken(tokenHash);
+    if (!invite) {
+      invite = await this.store.findInvitationByToken(trimmed);
+    }
+    if (!invite) {
+      throw new AuthError(404, 'INVALID_INVITATION', 'This invitation does not exist.');
+    }
+    if (invite.status === 'revoked') {
+      throw new AuthError(410, 'INVITATION_REVOKED', 'This invitation has been revoked by the workspace administrator.');
+    }
+    if (invite.status === 'accepted') {
+      throw new AuthError(409, 'INVITATION_ALREADY_ACCEPTED', 'This invitation has already been accepted.');
+    }
+    if (invite.status === 'expired' || invite.expiresAt.getTime() <= now.getTime()) {
+      if (invite.status === 'pending') {
+        await this.store.updateInvitationStatus(invite.id, 'expired');
+      }
+      throw new AuthError(410, 'INVITATION_EXPIRED', 'This invitation has expired.');
+    }
+    return invite;
+  }
+
+  async getInvitationDetails(token: string): Promise<InvitationPublicDetails> {
+    const now = this.clock();
+    const invite = await this.resolveInvitation(token, now);
+    return {
+      email: invite.email,
+      companyName: invite.companyName ?? 'Workspace',
+      role: invite.role,
+      status: invite.status,
+      expiresAt: invite.expiresAt,
+    };
+  }
+
   async registerCompany(input: RegisterCompanyInput): Promise<LoginResult> {
     return this.register(input);
   }
@@ -150,17 +200,22 @@ export class AuthService {
     let companyId: string | null = null;
     let companyName: string | null = null;
     let role: UserRole = 'owner';
+    let pendingInviteId: string | null = null;
 
     // 1. If an invitation token is provided, validate and join that company
     if (input.inviteToken?.trim()) {
-      const invite = await this.store.findInvitationByToken(input.inviteToken.trim());
-      if (!invite || invite.status !== 'pending' || invite.expiresAt.getTime() <= now.getTime()) {
-        throw new AuthError(400, 'INVALID_INVITATION', 'This invitation is invalid or has expired.');
+      const invite = await this.resolveInvitation(input.inviteToken, now);
+      if (email !== normalizeEmail(invite.email)) {
+        throw new AuthError(
+          403,
+          'INVITATION_EMAIL_MISMATCH',
+          `This invitation was issued for ${invite.email}. Please register with that email address.`,
+        );
       }
       companyId = invite.companyId;
       companyName = invite.companyName ?? null;
       role = invite.role;
-      await this.store.updateInvitationStatus(invite.id, 'accepted');
+      pendingInviteId = invite.id;
     } else if (input.companyName && input.companyName.trim().length >= 2) {
       // 2. If company name is provided, create a new company workspace
       const newCompanyId = newId();
@@ -191,6 +246,10 @@ export class AuthService {
       createdAt: now,
     });
     user.companyName = companyName;
+
+    if (pendingInviteId) {
+      await this.store.updateInvitationStatus(pendingInviteId, 'accepted');
+    }
 
     const token = generateSessionToken();
     const tokenHash = hashSessionToken(token);
@@ -310,6 +369,38 @@ export class AuthService {
     }
 
     await this.store.recordLoginSuccess(user.id, now);
+
+    // If an invitation token is provided during login, accept it and join the company
+    if (input.inviteToken?.trim()) {
+      const invite = await this.resolveInvitation(input.inviteToken, now);
+      if (email !== normalizeEmail(invite.email)) {
+        throw new AuthError(
+          403,
+          'INVITATION_EMAIL_MISMATCH',
+          `This invitation was issued for ${invite.email}, but you signed in with ${email}.`,
+        );
+      }
+
+      await this.store.updateUserRoleAndCompany(user.id, invite.companyId, invite.role);
+      await this.store.updateInvitationStatus(invite.id, 'accepted');
+
+      user.companyId = invite.companyId;
+      user.companyName = invite.companyName ?? null;
+      user.role = invite.role;
+
+      await this.audit({
+        userId: user.id,
+        companyId: invite.companyId,
+        action: 'company.invitation_accepted',
+        outcome: 'success',
+        resourceType: 'company',
+        resourceId: invite.companyId,
+        ip: input.ip,
+        userAgent: input.userAgent,
+        requestId: input.requestId,
+        metadata: { role: invite.role },
+      });
+    }
 
     // Session-fixation defence: whatever session the browser presented is
     // destroyed before a brand-new id/token pair is issued.
@@ -627,7 +718,8 @@ export class AuthService {
       throw new AuthError(409, 'ALREADY_MEMBER', 'That user is already a member of this workspace.');
     }
 
-    const token = randomBytes(24).toString('base64url');
+    const rawToken = generateInvitationToken();
+    const tokenHash = hashInvitationToken(rawToken);
     const now = this.clock();
     const expiresAt = new Date(now.getTime() + 7 * 24 * 3600_000); // 7 days
 
@@ -637,7 +729,7 @@ export class AuthService {
       invitedBy: actor.id,
       email,
       role: input.role,
-      token,
+      token: tokenHash,
       expiresAt,
       createdAt: now,
     });
@@ -655,7 +747,11 @@ export class AuthService {
       metadata: { targetEmail: email, role: input.role },
     });
 
-    return invitation;
+    // Return the unhashed raw token to the inviter so they can share the invite link
+    return {
+      ...invitation,
+      token: rawToken,
+    };
   }
 
   async listWorkspaceInvitations(actor: AuthUser): Promise<CompanyInvitation[]> {
@@ -673,6 +769,13 @@ export class AuthService {
   ): Promise<void> {
     if (!actor.companyId || (actor.role !== 'owner' && actor.role !== 'admin')) {
       throw new AuthError(403, 'FORBIDDEN', 'Only owners and admins can revoke invitations.');
+    }
+    const invite = await this.store.findInvitationById(invitationId);
+    if (!invite || invite.companyId !== actor.companyId) {
+      throw new AuthError(404, 'INVITATION_NOT_FOUND', 'Invitation not found in this workspace.');
+    }
+    if (invite.status === 'revoked') {
+      return;
     }
     await this.store.updateInvitationStatus(invitationId, 'revoked');
     await this.audit({
@@ -693,10 +796,15 @@ export class AuthService {
     token: string,
     context?: { ip?: string; userAgent?: string; requestId?: string },
   ): Promise<AuthUser> {
-    const invite = await this.store.findInvitationByToken(token.trim());
     const now = this.clock();
-    if (!invite || invite.status !== 'pending' || invite.expiresAt.getTime() <= now.getTime()) {
-      throw new AuthError(400, 'INVALID_INVITATION', 'This invitation is invalid or has expired.');
+    const invite = await this.resolveInvitation(token, now);
+
+    if (normalizeEmail(actor.email) !== normalizeEmail(invite.email)) {
+      throw new AuthError(
+        403,
+        'INVITATION_EMAIL_MISMATCH',
+        `This invitation was issued for ${invite.email}, but you are signed in as ${actor.email}.`,
+      );
     }
 
     await this.store.updateUserRoleAndCompany(actor.id, invite.companyId, invite.role);

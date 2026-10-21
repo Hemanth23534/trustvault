@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 
 export const SESSION_TOKEN_BYTES = 32;
 export const CSRF_TOKEN_BYTES = 32;
+export const INVITATION_TOKEN_BYTES = 32;
 
 export function newId(): string {
   return randomUUID();
@@ -21,12 +22,24 @@ export function generateCsrfToken(): string {
   return randomBytes(CSRF_TOKEN_BYTES).toString('hex');
 }
 
+/**
+ * Workspace invitation token (hex, 64 chars = 256 bits of entropy).
+ * Transmitted in URL / invitation email; only its SHA-256 hash is kept in the database.
+ */
+export function generateInvitationToken(): string {
+  return randomBytes(INVITATION_TOKEN_BYTES).toString('hex');
+}
+
 export function sha256Hex(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
 export function hashSessionToken(token: string): string {
   return sha256Hex(token);
+}
+
+export function hashInvitationToken(token: string): string {
+  return sha256Hex(token.trim());
 }
 
 /**

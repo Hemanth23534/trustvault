@@ -6,7 +6,7 @@ import { extractErrorMessage } from '../lib/auth';
 import { IconShield } from '../components/ui/Icons';
 
 export function CreateWorkspacePage(): JSX.Element {
-  const { user, setUser } = useAuth();
+  const { user, setUser, csrfToken } = useAuth();
   const navigate = useNavigate();
   const [companyName, setCompanyName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -18,11 +18,15 @@ export function CreateWorkspacePage(): JSX.Element {
       setError('Company name must be at least 2 characters.');
       return;
     }
+    if (!csrfToken) {
+      setError('Security token not ready. Reload the page and try again.');
+      return;
+    }
 
     setBusy(true);
     setError(null);
     try {
-      const result = await createWorkspace(companyName.trim());
+      const result = await createWorkspace(companyName.trim(), csrfToken);
       if (!result.ok) {
         setError(extractErrorMessage(result.data) ?? 'Failed to create workspace.');
         setBusy(false);

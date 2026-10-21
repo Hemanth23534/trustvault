@@ -29,25 +29,45 @@ export interface CompanyInvitation {
   updatedAt: string;
 }
 
+export interface InvitationDetails {
+  email: string;
+  companyName: string;
+  role: 'admin' | 'editor' | 'viewer';
+  status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  expiresAt: string;
+}
+
 export function fetchWorkspace(): Promise<ApiResult<WorkspaceStatus>> {
   return request<WorkspaceStatus>(`${API_PREFIX}/workspace`);
 }
 
-export function createWorkspace(companyName: string): Promise<ApiResult<{ user: AuthUser }>> {
+export function createWorkspace(
+  companyName: string,
+  csrfToken: string,
+): Promise<ApiResult<{ user: AuthUser }>> {
   return request<{ user: AuthUser }>(`${API_PREFIX}/workspace`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
     body: JSON.stringify({ companyName }),
   });
 }
 
-export function updateWorkspaceSettings(patch: {
-  name?: string;
-  domain?: string | null;
-}): Promise<ApiResult<{ company: Company }>> {
+export function updateWorkspaceSettings(
+  patch: {
+    name?: string;
+    domain?: string | null;
+  },
+  csrfToken: string,
+): Promise<ApiResult<{ company: Company }>> {
   return request<{ company: Company }>(`${API_PREFIX}/workspace`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
     body: JSON.stringify(patch),
   });
 }
@@ -62,44 +82,80 @@ export function fetchWorkspaceInvitations(): Promise<
   return request<{ invitations: CompanyInvitation[] }>(`${API_PREFIX}/workspace/invitations`);
 }
 
-export function inviteWorkspaceMember(input: {
-  email: string;
-  role: 'admin' | 'editor' | 'viewer';
-}): Promise<ApiResult<{ invitation: CompanyInvitation }>> {
+export function verifyWorkspaceInvitation(
+  token: string,
+): Promise<ApiResult<InvitationDetails>> {
+  return request<InvitationDetails>(
+    `${API_PREFIX}/workspace/invitations/verify?token=${encodeURIComponent(token)}`,
+  );
+}
+
+export function inviteWorkspaceMember(
+  input: {
+    email: string;
+    role: 'admin' | 'editor' | 'viewer';
+  },
+  csrfToken: string,
+): Promise<ApiResult<{ invitation: CompanyInvitation }>> {
   return request<{ invitation: CompanyInvitation }>(`${API_PREFIX}/workspace/invitations`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
     body: JSON.stringify(input),
   });
 }
 
-export function revokeWorkspaceInvitation(id: string): Promise<ApiResult<void>> {
+export function revokeWorkspaceInvitation(
+  id: string,
+  csrfToken: string,
+): Promise<ApiResult<void>> {
   return request<void>(`${API_PREFIX}/workspace/invitations/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    headers: {
+      'X-CSRF-Token': csrfToken,
+    },
   });
 }
 
-export function acceptWorkspaceInvitation(token: string): Promise<ApiResult<{ user: AuthUser }>> {
+export function acceptWorkspaceInvitation(
+  token: string,
+  csrfToken: string,
+): Promise<ApiResult<{ user: AuthUser }>> {
   return request<{ user: AuthUser }>(`${API_PREFIX}/workspace/invitations/accept`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
     body: JSON.stringify({ token }),
   });
 }
 
-export function removeWorkspaceMember(userId: string): Promise<ApiResult<void>> {
+export function removeWorkspaceMember(
+  userId: string,
+  csrfToken: string,
+): Promise<ApiResult<void>> {
   return request<void>(`${API_PREFIX}/workspace/members/${encodeURIComponent(userId)}`, {
     method: 'DELETE',
+    headers: {
+      'X-CSRF-Token': csrfToken,
+    },
   });
 }
 
 export function updateWorkspaceMemberRole(
   userId: string,
   role: UserRole,
+  csrfToken: string,
 ): Promise<ApiResult<void>> {
   return request<void>(`${API_PREFIX}/workspace/members/${encodeURIComponent(userId)}/role`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
     body: JSON.stringify({ role }),
   });
 }

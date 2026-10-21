@@ -52,12 +52,30 @@ export function extractErrorMessage(data: unknown): string | null {
   return envelope.message;
 }
 
-export function login(email: string, password: string): Promise<ApiResult<AuthPayload>> {
+export function login(
+  email: string,
+  password: string,
+  inviteToken?: string,
+): Promise<ApiResult<AuthPayload>> {
   return request<AuthPayload>(`${API_PREFIX}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, inviteToken: inviteToken || undefined }),
   });
+}
+
+export interface InvitationDetails {
+  email: string;
+  companyName: string;
+  role: 'admin' | 'editor' | 'viewer';
+  status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  expiresAt: string;
+}
+
+export function fetchInvitationDetails(token: string): Promise<ApiResult<InvitationDetails>> {
+  return request<InvitationDetails>(
+    `${API_PREFIX}/auth/invitation?token=${encodeURIComponent(token)}`,
+  );
 }
 
 export function register(input: {

@@ -1,8 +1,11 @@
-import { useState, type FormEvent, type JSX } from 'react';
-import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useState, type FormEvent, type JSX } from 'react';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { BrandMark } from '../components/BrandMark';
-import { IconActivity, IconLock, IconShare, IconShield, IconUsers } from '../components/ui/Icons';
+import { IconActivity, IconLock, IconShare, IconShield } from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
+import { extractErrorMessage, fetchInvitationDetails, type InvitationDetails } from '../lib/auth';
+import { roleLabel } from '../lib/format';
+import { acceptWorkspaceInvitation } from '../lib/workspace';
 
 const HIGHLIGHTS = [
   {
@@ -28,7 +31,8 @@ const HIGHLIGHTS = [
 ];
 
 export function RegisterPage(): JSX.Element {
-  const { status, register } = useAuth();
+  const { status, user, setUser, csrfToken, register } = useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const inviteTokenParam = searchParams.get('invite') ?? '';
 
@@ -44,8 +48,108 @@ export function RegisterPage(): JSX.Element {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inviteDetails, setInviteDetails] = useState<InvitationDetails | null>(null);
+
+  useEffect(() => {
+    if (!inviteTokenParam) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetchInvitationDetails(inviteTokenParam);
+        if (cancelled) return;
+        if (res.ok) {
+          setInviteDetails(res.data);
+          setEmail(res.data.email);
+        } else {
+          setError(extractErrorMessage(res.data) ?? 'Invalid or expired invitation.');
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not verify invitation.');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteTokenParam]);
+
+  // If user is already authenticated and has an invite token, allow accepting immediately
+  async function handleAcceptWhileLoggedIn(): Promise<void> {
+    if (!csrfToken) {
+      setError('Security token not ready. Reload the page and try again.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await acceptWorkspaceInvitation(inviteTokenParam, csrfToken);
+      if (!res.ok) {
+        setError(extractErrorMessage(res.data) ?? 'Failed to accept invitation.');
+        setBusy(false);
+        return;
+      }
+      setUser(res.data.user);
+      navigate('/', { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not accept invitation.');
+      setBusy(false);
+    }
+  }
 
   if (status === 'authenticated') {
+    if (inviteTokenParam) {
+      return (
+        <div className="login-page">
+          <section className="login-panel" style={{ maxWidth: 540, margin: '4rem auto' }}>
+            <div className="login-card">
+              <header>
+                <h2>Join Workspace</h2>
+                <p className="muted">You are invited to collaborate on TrustVault.</p>
+              </header>
+
+              {inviteDetails ? (
+                <div className="alert alert-info" role="status" style={{ margin: '1rem 0' }}>
+                  <strong>{inviteDetails.companyName}</strong>
+                  <p className="small">
+                    Role: <strong>{roleLabel(inviteDetails.role)}</strong>
+                  </p>
+                </div>
+              ) : null}
+
+              <p className="small" style={{ marginBottom: '1.5rem' }}>
+                You are currently signed in as <strong>{user?.email}</strong>.
+              </p>
+
+              {error !== null ? (
+                <p className="alert alert-error" role="alert" style={{ marginBottom: '1rem' }}>
+                  {error}
+                </p>
+              ) : null}
+
+              <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
+                <button
+                  type="button"
+                  className="button button-primary button-block"
+                  onClick={() => void handleAcceptWhileLoggedIn()}
+                  disabled={busy}
+                >
+                  {busy ? 'Accepting invitation…' : 'Accept Invitation & Enter Workspace'}
+                </button>
+                <button
+                  type="button"
+                  className="button button-ghost button-block"
+                  onClick={() => navigate('/', { replace: true })}
+                  disabled={busy}
+                >
+                  Go to Dashboard
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      );
+    }
     return <Navigate to="/" replace />;
   }
 
@@ -123,7 +227,15 @@ export function RegisterPage(): JSX.Element {
             <p className="muted">Join TrustVault to store and share sensitive documents securely.</p>
           </header>
 
-          {inviteTokenParam ? (
+          {inviteTokenParam && inviteDetails ? (
+            <div className="alert alert-info" role="status" style={{ marginBottom: '1rem' }}>
+              <strong>Workspace Invitation</strong>
+              <p className="small">
+                You&apos;ve been invited to join <strong>{inviteDetails.companyName}</strong> as a{' '}
+                <strong>{roleLabel(inviteDetails.role)}</strong>.
+              </p>
+            </div>
+          ) : inviteTokenParam ? (
             <div className="alert alert-info" role="status" style={{ marginBottom: '1rem' }}>
               <strong>Workspace Invitation</strong>
               <p className="small">You are registering with an invitation code to join a workspace.</p>
@@ -184,9 +296,12 @@ export function RegisterPage(): JSX.Element {
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                disabled={busy}
+                disabled={busy || Boolean(inviteDetails)}
                 placeholder="jane@example.com"
               />
+              {inviteDetails ? (
+                <span className="small muted">This invitation is assigned to {inviteDetails.email}.</span>
+              ) : null}
             </div>
 
             {workspaceType === 'company' && !inviteToken ? (
@@ -260,20 +375,35 @@ export function RegisterPage(): JSX.Element {
             </div>
 
             <button className="button button-primary button-block" type="submit" disabled={busy}>
-              {busy ? 'Creating workspace…' : 'Create company workspace'}
+              {busy
+                ? 'Creating account…'
+                : inviteDetails
+                  ? `Join ${inviteDetails.companyName}`
+                  : workspaceType === 'company'
+                    ? 'Create company workspace'
+                    : 'Create personal account'}
             </button>
           </form>
 
           <p className="login-hint" style={{ marginTop: '1.25rem', textAlign: 'center' }}>
             Already have an account?{' '}
-            <Link to="/login" style={{ fontWeight: 600, color: 'var(--color-brand)' }}>
+            <Link
+              to={
+                inviteTokenParam
+                  ? `/login?invite=${encodeURIComponent(inviteTokenParam)}`
+                  : '/login'
+              }
+              style={{ fontWeight: 600, color: 'var(--color-brand)' }}
+            >
               Sign in here
             </Link>
           </p>
         </div>
 
         <p className="login-footnote">
-          Registration provisions you as the workspace owner with full document upload and access control privileges.
+          {inviteDetails
+            ? `Accepting this invitation associates your account with ${inviteDetails.companyName}.`
+            : 'Registration provisions you as the workspace owner with full document upload and access control privileges.'}
         </p>
       </section>
     </div>

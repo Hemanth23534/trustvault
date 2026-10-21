@@ -17,7 +17,7 @@ import { IconUsers, IconShield, IconClose } from '../components/ui/Icons';
 import { Skeleton, EmptyState } from '../components/ui/Feedback';
 
 export function WorkspaceMembersPage(): JSX.Element {
-  const { user } = useAuth();
+  const { user, csrfToken } = useAuth();
   const [members, setMembers] = useState<AuthUser[]>([]);
   const [invitations, setInvitations] = useState<CompanyInvitation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,15 +66,22 @@ export function WorkspaceMembersPage(): JSX.Element {
   async function handleInvite(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
+    if (!csrfToken) {
+      setError('Security token not ready. Reload the page and try again.');
+      return;
+    }
     setInviting(true);
     setError(null);
     setNotice(null);
 
     try {
-      const result = await inviteWorkspaceMember({
-        email: inviteEmail.trim(),
-        role: inviteRole,
-      });
+      const result = await inviteWorkspaceMember(
+        {
+          email: inviteEmail.trim(),
+          role: inviteRole,
+        },
+        csrfToken,
+      );
 
       if (!result.ok) {
         setError(extractErrorMessage(result.data) ?? 'Failed to send invitation.');
@@ -96,8 +103,12 @@ export function WorkspaceMembersPage(): JSX.Element {
   }
 
   async function handleRevokeInvite(id: string): Promise<void> {
+    if (!csrfToken) {
+      setError('Security token not ready.');
+      return;
+    }
     try {
-      await revokeWorkspaceInvitation(id);
+      await revokeWorkspaceInvitation(id, csrfToken);
       setInvitations((prev) => prev.filter((i) => i.id !== id));
       setNotice('Invitation revoked.');
     } catch {
@@ -106,11 +117,15 @@ export function WorkspaceMembersPage(): JSX.Element {
   }
 
   async function handleRemoveMember(member: AuthUser): Promise<void> {
+    if (!csrfToken) {
+      setError('Security token not ready.');
+      return;
+    }
     if (!confirm(`Are you sure you want to remove ${member.displayName ?? member.email} from the workspace?`)) {
       return;
     }
     try {
-      await removeWorkspaceMember(member.id);
+      await removeWorkspaceMember(member.id, csrfToken);
       setMembers((prev) => prev.filter((m) => m.id !== member.id));
       setNotice(`Removed ${member.displayName ?? member.email}.`);
     } catch {
@@ -119,8 +134,12 @@ export function WorkspaceMembersPage(): JSX.Element {
   }
 
   async function handleChangeRole(memberId: string, newRole: UserRole): Promise<void> {
+    if (!csrfToken) {
+      setError('Security token not ready.');
+      return;
+    }
     try {
-      await updateWorkspaceMemberRole(memberId, newRole);
+      await updateWorkspaceMemberRole(memberId, newRole, csrfToken);
       setMembers((prev) =>
         prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)),
       );

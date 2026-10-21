@@ -23,7 +23,7 @@ import { actionLabel, formatDateTime, relativeTime, roleLabel } from '../lib/for
 const PAGE_SIZE = 20;
 
 export function AdminPage(): JSX.Element {
-  const { user: currentActor } = useAuth();
+  const { user: currentActor, csrfToken } = useAuth();
 
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<AdminUserEntry[]>([]);
@@ -192,10 +192,14 @@ export function AdminPage(): JSX.Element {
   };
 
   const handleCreateCheckpoint = async () => {
+    if (!csrfToken) {
+      setError('Security token not ready. Reload the page and try again.');
+      return;
+    }
     setCreatingCheckpoint(true);
     setFeedback(null);
     try {
-      const res = await createAuditCheckpoint();
+      const res = await createAuditCheckpoint(csrfToken);
       if (res.ok) {
         setFeedback('Cryptographic checkpoint successfully anchored.');
         await handleVerifyIntegrity();
@@ -214,13 +218,17 @@ export function AdminPage(): JSX.Element {
       setError('You cannot deactivate your own administrative account.');
       return;
     }
+    if (!csrfToken) {
+      setError('Security token not ready. Reload the page and try again.');
+      return;
+    }
     setTogglingUser(user.id);
     setError(null);
     setFeedback(null);
 
     const nextState = !user.isActive;
     try {
-      const res = await setAdminUserStatus(user.id, nextState);
+      const res = await setAdminUserStatus(user.id, nextState, csrfToken);
       if (res.ok) {
         setUsers((prev) =>
           prev.map((u) => (u.id === user.id ? { ...u, isActive: nextState } : u)),

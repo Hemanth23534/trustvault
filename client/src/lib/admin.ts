@@ -114,20 +114,28 @@ export function verifyAuditIntegrity(): Promise<ApiResult<AuditVerificationResul
   return request<AuditVerificationResult>(`${API_PREFIX}/admin/audit-logs/verify`);
 }
 
-export function createAuditCheckpoint(): Promise<ApiResult<{ checkpoint: unknown }>> {
+export function createAuditCheckpoint(
+  csrfToken: string,
+): Promise<ApiResult<{ checkpoint: unknown }>> {
   return request<{ checkpoint: unknown }>(`${API_PREFIX}/admin/audit-logs/checkpoints`, {
     method: 'POST',
+    headers: { 'X-CSRF-Token': csrfToken },
   });
 }
 
 export function setAdminUserStatus(
   userId: string,
   isActive: boolean,
+  csrfToken: string,
 ): Promise<ApiResult<{ ok: boolean; userId: string; isActive: boolean }>> {
   return request<{ ok: boolean; userId: string; isActive: boolean }>(
     `${API_PREFIX}/admin/users/${userId}/status`,
     {
       method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
       body: JSON.stringify({ isActive }),
     },
   );

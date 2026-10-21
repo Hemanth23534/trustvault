@@ -134,6 +134,7 @@ export interface AuthStore {
     createdAt: Date;
   }): Promise<CompanyInvitation>;
   findInvitationByToken(token: string): Promise<CompanyInvitation | null>;
+  findInvitationById(id: string): Promise<CompanyInvitation | null>;
   listCompanyInvitations(companyId: string): Promise<CompanyInvitation[]>;
   updateInvitationStatus(id: string, status: 'accepted' | 'revoked' | 'expired'): Promise<void>;
   findUserByEmail(email: string): Promise<UserWithCredentials | null>;
@@ -448,6 +449,33 @@ export class MySqlAuthStore implements AuthStore {
          LEFT JOIN users u ON u.id = i.invited_by
         WHERE i.token = ? LIMIT 1`,
       [token],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      companyId: row.company_id,
+      companyName: row.company_name,
+      invitedBy: row.invited_by,
+      invitedByName: row.invited_by_name ?? null,
+      email: row.email,
+      role: row.role,
+      token: row.token,
+      status: row.status,
+      expiresAt: toDate(row.expires_at),
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
+    };
+  }
+
+  async findInvitationById(id: string): Promise<CompanyInvitation | null> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT i.*, c.name AS company_name, u.display_name AS invited_by_name
+         FROM company_invitations i
+         JOIN companies c ON c.id = i.company_id
+         LEFT JOIN users u ON u.id = i.invited_by
+        WHERE i.id = ? LIMIT 1`,
+      [id],
     );
     const row = rows[0];
     if (!row) return null;

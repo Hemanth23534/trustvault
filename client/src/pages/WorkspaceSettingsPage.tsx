@@ -7,7 +7,7 @@ import { IconShield } from '../components/ui/Icons';
 import { Skeleton } from '../components/ui/Feedback';
 
 export function WorkspaceSettingsPage(): JSX.Element {
-  const { user, setUser } = useAuth();
+  const { user, setUser, csrfToken } = useAuth();
   const [company, setCompany] = useState<Company | null>(null);
   const [name, setName] = useState('');
   const [domain, setDomain] = useState('');
@@ -46,15 +46,22 @@ export function WorkspaceSettingsPage(): JSX.Element {
   async function handleSave(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     if (!name.trim()) return;
+    if (!csrfToken) {
+      setError('Security token not ready. Reload the page and try again.');
+      return;
+    }
     setSaving(true);
     setError(null);
     setNotice(null);
 
     try {
-      const res = await updateWorkspaceSettings({
-        name: name.trim(),
-        domain: domain.trim() || null,
-      });
+      const res = await updateWorkspaceSettings(
+        {
+          name: name.trim(),
+          domain: domain.trim() || null,
+        },
+        csrfToken,
+      );
 
       if (!res.ok) {
         setError(extractErrorMessage(res.data) ?? 'Failed to update workspace.');

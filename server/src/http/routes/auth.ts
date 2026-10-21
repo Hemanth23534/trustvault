@@ -16,6 +16,7 @@ const loginBodySchema = z.object({
   // Only shape is validated here. Password *policy* belongs to account
   // creation; a login must fail as invalid credentials, not as a 422.
   password: z.string().min(1).max(200),
+  inviteToken: z.string().trim().max(128).optional(),
 });
 
 const registerBodySchema = z.object({
@@ -109,6 +110,7 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
     const result = await service.login({
       email: parsed.data.email,
       password: parsed.data.password,
+      inviteToken: parsed.data.inviteToken,
       ip: req.ip,
       userAgent: req.get('user-agent'),
       requestId: req.id,
@@ -174,6 +176,17 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
       user: context.user,
       session: serializeSession(context),
     });
+  });
+
+  /**
+   * GET /api/auth/invitation?token=...
+   * Public endpoint to verify invitation token and get workspace metadata.
+   */
+  router.get('/invitation', async (req, res) => {
+    const token = typeof req.query.token === 'string' ? req.query.token : '';
+    const details = await service.getInvitationDetails(token);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json(details);
   });
 
   /**

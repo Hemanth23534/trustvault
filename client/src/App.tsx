@@ -23,6 +23,7 @@ export function App(): JSX.Element {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/accept-invite" element={<RegisterPage />} />
           <Route element={<RequireAuth />}>
             <Route element={<AppShell />}>
               <Route index element={<DashboardPage />} />

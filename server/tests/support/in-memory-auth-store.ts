@@ -163,6 +163,11 @@ export class InMemoryAuthStore implements AuthStore {
     return null;
   }
 
+  async findInvitationById(id: string): Promise<CompanyInvitation | null> {
+    const inv = this.invitations.get(id);
+    return inv ? { ...inv } : null;
+  }
+
   async listCompanyInvitations(companyId: string): Promise<CompanyInvitation[]> {
     return [...this.invitations.values()]
       .filter((i) => i.companyId === companyId)

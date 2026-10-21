@@ -34,7 +34,7 @@ export interface AuthContextValue {
   /** Kept in memory only; never written to localStorage. */
   csrfToken: string | null;
   notice: string | null;
-  login: (email: string, password: string) => Promise<LoginOutcome>;
+  login: (email: string, password: string, inviteToken?: string) => Promise<LoginOutcome>;
   register: (input: {
     name: string;
     email: string;
@@ -115,9 +115,10 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     };
   }, []);
 
-  const login = useCallback(async (email: string, password: string): Promise<LoginOutcome> => {
-    try {
-      const result = await loginRequest(email, password);
+  const login = useCallback(
+    async (email: string, password: string, inviteToken?: string): Promise<LoginOutcome> => {
+      try {
+        const result = await loginRequest(email, password, inviteToken);
       if (!result.ok) {
         return {
           ok: false,
