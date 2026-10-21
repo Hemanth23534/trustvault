@@ -85,3 +85,80 @@ describe('private storage helpers', () => {
     expect(() => resolveWithinStorage(root, '.')).toThrow(/not the root itself/);
   });
 });
+
+describe('SQL query parameter integrity (TiDB/MySQL)', () => {
+  it('ensures MySqlDocumentStore generates zero leftover question marks across scopes', async () => {
+    const executedQueries: Array<{ sql: string; values: unknown[] }> = [];
+    const fakePool = {
+      query: async (sql: string, values?: unknown[]) => {
+        executedQueries.push({ sql, values: values ?? [] });
+        return [[], []];
+      },
+    } as unknown as Pool;
+
+    const { MySqlDocumentStore } = await import('../src/documents/document-store.js');
+    const store = new MySqlDocumentStore(fakePool);
+    const mysql = await import('mysql2');
+
+    const scopes = [undefined, 'all', 'mine', 'shared', 'company'] as const;
+    const viewers = [
+      { id: 'usr-1111', role: 'owner' as const, companyId: 'cmp-9999' },
+      { id: 'usr-2222', role: 'owner' as const, companyId: null },
+    ];
+
+    for (const viewer of viewers) {
+      for (const scope of scopes) {
+        executedQueries.length = 0;
+        await store.list(viewer, {
+          sort: { field: 'created_at', order: 'desc' },
+          limit: 10,
+          offset: 0,
+          scope,
+          search: 'quarterly report',
+        });
+
+        expect(executedQueries.length).toBe(2); // rows query + countRows query
+        for (const { sql, values } of executedQueries) {
+          const formatted = (mysql as any).format(sql, values);
+          expect(formatted).not.toContain('?');
+        }
+      }
+
+      // Test findAccessible
+      executedQueries.length = 0;
+      await store.findAccessible('doc-3333', viewer);
+      expect(executedQueries.length).toBe(1);
+      const formatted = (mysql as any).format(executedQueries[0]!.sql, executedQueries[0]!.values);
+      expect(formatted).not.toContain('?');
+    }
+  });
+
+  it('ensures MySqlDocumentActivityStore.stats generates valid parameter bindings for TiDB', async () => {
+    const executedQueries: Array<{ sql: string; values: unknown[] }> = [];
+    const fakePool = {
+      execute: async (sql: string, values?: unknown[]) => {
+        executedQueries.push({ sql, values: values ?? [] });
+        return [[], []];
+      },
+    } as unknown as Pool;
+
+    const { MySqlDocumentActivityStore } = await import('../src/documents/activity-store.js');
+    const store = new MySqlDocumentActivityStore(fakePool);
+    const mysql = await import('mysql2');
+
+    const viewers = [
+      { id: 'usr-1111', role: 'owner' as const, companyId: 'cmp-9999' },
+      { id: 'usr-2222', role: 'owner' as const, companyId: null },
+    ];
+
+    for (const viewer of viewers) {
+      executedQueries.length = 0;
+      await store.stats(viewer);
+      expect(executedQueries.length).toBe(2); // totals + byCategory
+      for (const { sql, values } of executedQueries) {
+        const formatted = (mysql as any).format(sql, values);
+        expect(formatted).not.toContain('?');
+      }
+    }
+  });
+});

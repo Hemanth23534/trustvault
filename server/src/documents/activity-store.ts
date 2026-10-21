@@ -160,8 +160,10 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
   constructor(private readonly pool: Pool) {}
 
   async stats(viewer: DocumentViewer): Promise<DocumentStats> {
-    const access = `d.deleted_at IS NULL AND (d.owner_id = ? OR p.user_id IS NOT NULL)`;
-    const accessParams = [viewer.id];
+    const access = viewer.companyId
+      ? `d.deleted_at IS NULL AND (d.company_id = ? OR d.owner_id = ? OR p.user_id IS NOT NULL)`
+      : `d.deleted_at IS NULL AND (d.owner_id = ? OR p.user_id IS NOT NULL)`;
+    const accessParams = viewer.companyId ? [viewer.companyId, viewer.id] : [viewer.id];
 
     const [totals] = await this.pool.execute<StatsRow[]>(
       `SELECT COUNT(*) AS total,

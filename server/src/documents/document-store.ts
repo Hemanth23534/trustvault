@@ -199,9 +199,10 @@ export class MySqlDocumentStore implements DocumentStore {
       filterParams.push(viewer.companyId);
     } else if (viewer.companyId) {
       conditions.push('(d.company_id = ? OR p.user_id IS NOT NULL OR d.owner_id = ?)');
-      filterParams.push(viewer.companyId);
+      filterParams.push(viewer.companyId, viewer.id);
     } else {
       conditions.push('(d.company_id IS NULL OR p.user_id IS NOT NULL OR d.owner_id = ?)');
+      filterParams.push(viewer.id);
     }
 
     const where = conditions.join(' AND ');
@@ -247,9 +248,10 @@ export class MySqlDocumentStore implements DocumentStore {
     const bindings: Array<string | number | Date> = [viewer.id, viewer.id, id, viewer.id];
     if (viewer.companyId) {
       conditions.push('(d.company_id = ? OR p.user_id IS NOT NULL OR d.owner_id = ?)');
-      bindings.push(viewer.companyId);
+      bindings.push(viewer.companyId, viewer.id);
     } else {
       conditions.push('(d.company_id IS NULL OR p.user_id IS NOT NULL OR d.owner_id = ?)');
+      bindings.push(viewer.id);
     }
 
     const [rows] = await this.pool.query<DocumentRow[]>(
