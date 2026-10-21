@@ -195,7 +195,10 @@ export class MySqlDocumentStore implements DocumentStore {
     const order = query.sort.order === 'asc' ? 'ASC' : 'DESC';
     const sortColumn = SORT_COLUMNS[query.sort.field];
 
-    const [rows] = await this.pool.execute<DocumentRow[]>(
+    const limit = Math.min(Math.max(Math.trunc(Number(query.limit) || 25), 1), 100);
+    const offset = Math.min(Math.max(Math.trunc(Number(query.offset) || 0), 0), 1_000_000);
+
+    const [rows] = await this.pool.query<DocumentRow[]>(
       `SELECT ${SELECT_COLUMNS}
          FROM documents d
          JOIN users u ON u.id = d.owner_id
@@ -203,11 +206,11 @@ export class MySqlDocumentStore implements DocumentStore {
                 ON p.document_id = d.id AND p.user_id = ?
         WHERE ${where}
         ORDER BY ${sortColumn} ${order}, d.id ${order}
-        LIMIT ? OFFSET ?`,
-      [viewer.id, viewer.id, ...filterParams, query.limit, query.offset],
+        LIMIT ${limit} OFFSET ${offset}`,
+      [viewer.id, viewer.id, ...filterParams],
     );
 
-    const [countRows] = await this.pool.execute<CountRow[]>(
+    const [countRows] = await this.pool.query<CountRow[]>(
       `SELECT COUNT(*) AS total
          FROM documents d
          JOIN users u ON u.id = d.owner_id
@@ -228,13 +231,13 @@ export class MySqlDocumentStore implements DocumentStore {
     viewer: DocumentViewer,
   ): Promise<DocumentWithStorage | null> {
     const conditions = ['d.id = ?', 'd.deleted_at IS NULL', ACCESS_PREDICATE];
-    const bindings: Array<string | number | Date> = [viewer.id, id, viewer.id];
+    const bindings: Array<string | number | Date> = [viewer.id, viewer.id, id, viewer.id];
     if (viewer.companyId) {
       conditions.push('(d.company_id = ? OR d.company_id IS NULL)');
       bindings.push(viewer.companyId);
     }
 
-    const [rows] = await this.pool.execute<DocumentRow[]>(
+    const [rows] = await this.pool.query<DocumentRow[]>(
       `SELECT ${SELECT_COLUMNS}
          FROM documents d
          JOIN users u ON u.id = d.owner_id

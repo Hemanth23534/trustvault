@@ -7,6 +7,7 @@ import { createLogger } from './config/logger.js';
 import { API_PREFIX, SERVICE_NAME, SERVICE_VERSION } from './config/service-info.js';
 import { runMigrations } from './db/migrate.js';
 import { closePool, ensureDatabase, getPool, hasPool } from './db/pool.js';
+import { seedDemoAccounts } from './scripts/seed.js';
 import { ensureStorageDir } from './storage/private-storage.js';
 
 /** How long in-flight requests get before the process is forced down. */
@@ -53,6 +54,30 @@ async function main(): Promise<void> {
     }
   } catch (migError) {
     logger.warn({ err: migError }, 'database migration check failed on startup; will continue');
+  }
+
+  // Auto-seed demo accounts on startup if requested via environment variables
+  if (process.env.SEED_DEMO_ACCOUNTS === 'true' || process.env.AUTO_SEED_DEMO_ACCOUNTS === 'true') {
+    try {
+      const pool = getPool(env);
+      const rotate = process.env.SEED_ROTATE_PASSWORDS === 'true';
+      logger.info('SEED_DEMO_ACCOUNTS enabled: provisioning demo accounts...');
+      const seeded = await seedDemoAccounts(pool, env, rotate);
+      for (const acc of seeded) {
+        logger.info(
+          {
+            email: acc.email,
+            role: acc.role,
+            status: acc.status,
+            passwordSource: acc.passwordSource,
+            password: acc.passwordSource === 'generated' ? acc.password : undefined,
+          },
+          'demo account provisioned',
+        );
+      }
+    } catch (seedErr) {
+      logger.warn({ err: seedErr }, 'demo account seeding failed on startup; will continue');
+    }
   }
 
   const app = createApp({ env, logger });

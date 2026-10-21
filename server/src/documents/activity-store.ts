@@ -293,7 +293,10 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
   }
 
   async historyForDocument(documentId: string, page: PageRequest): Promise<ActivityPage> {
-    const [rows] = await this.pool.execute<ActivityRow[]>(
+    const limit = Math.min(Math.max(Math.trunc(Number(page.limit) || 25), 1), 100);
+    const offset = Math.min(Math.max(Math.trunc(Number(page.offset) || 0), 0), 1_000_000);
+
+    const [rows] = await this.pool.query<ActivityRow[]>(
       `SELECT a.id, a.action, a.outcome, a.user_id, u.email AS actor_email,
               a.resource_id AS document_id, d.title AS document_title,
               a.metadata, a.created_at
@@ -302,11 +305,11 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
          LEFT JOIN documents d ON d.id = a.resource_id AND a.resource_type = 'document'
         WHERE a.resource_type = 'document' AND a.resource_id = ?
         ORDER BY a.id DESC
-        LIMIT ? OFFSET ?`,
-      [documentId, page.limit, page.offset],
+        LIMIT ${limit} OFFSET ${offset}`,
+      [documentId],
     );
 
-    const [countRows] = await this.pool.execute<CountRow[]>(
+    const [countRows] = await this.pool.query<CountRow[]>(
       `SELECT COUNT(*) AS total
          FROM audit_logs a
         WHERE a.resource_type = 'document' AND a.resource_id = ?`,
@@ -320,6 +323,8 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
   }
 
   async historyForManager(viewer: DocumentViewer, page: PageRequest): Promise<ActivityPage> {
+    const limit = Math.min(Math.max(Math.trunc(Number(page.limit) || 25), 1), 100);
+    const offset = Math.min(Math.max(Math.trunc(Number(page.offset) || 0), 0), 1_000_000);
     const managePredicate = `(? = 'admin' OR d.owner_id = ? OR p.user_id IS NOT NULL)`;
 
     // Administrators may read the audit event itself (actor, action, outcome,
@@ -331,7 +336,7 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
     // The CASE expression below redacts the title to '[Restricted]' whenever
     // the viewing user is not the document owner and has no explicit permission
     // row.  Owners and explicitly-granted users always see the full title.
-    const [rows] = await this.pool.execute<ActivityRow[]>(
+    const [rows] = await this.pool.query<ActivityRow[]>(
       `SELECT a.id, a.action, a.outcome, a.user_id, u.email AS actor_email,
               a.resource_id AS document_id,
               CASE
@@ -346,11 +351,11 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
                 ON p.document_id = d.id AND p.user_id = ?
         WHERE ${managePredicate}
         ORDER BY a.id DESC
-        LIMIT ? OFFSET ?`,
-      [viewer.id, viewer.id, viewer.role, viewer.id, page.limit, page.offset],
+        LIMIT ${limit} OFFSET ${offset}`,
+      [viewer.id, viewer.id, viewer.role, viewer.id],
     );
 
-    const [countRows] = await this.pool.execute<CountRow[]>(
+    const [countRows] = await this.pool.query<CountRow[]>(
       `SELECT COUNT(*) AS total
          FROM audit_logs a
          JOIN documents d ON d.id = a.resource_id AND a.resource_type = 'document'

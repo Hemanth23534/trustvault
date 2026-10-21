@@ -491,6 +491,35 @@ describe('GET /api/documents (listing and search)', () => {
       .set('Cookie', session.cookie)
       .expect(200);
     expect(secondPage.body.documents).toHaveLength(1);
+
+    // Dashboard query: limit=6, sort=created_at, order=desc
+    const dashboardQuery = await request(stack.app)
+      .get('/api/documents?limit=6&sort=created_at&order=desc')
+      .set('Cookie', session.cookie)
+      .expect(200);
+    expect(dashboardQuery.body.documents).toHaveLength(3);
+    expect(dashboardQuery.body.pagination).toEqual({ limit: 6, offset: 0, total: 3 });
+  });
+
+  it('rejects invalid or negative pagination parameters with 422', async () => {
+    const stack = buildStack();
+    await createUser(stack, { email: 'owner@trustvault.local', role: 'owner' });
+    const session = await login(stack, 'owner@trustvault.local');
+
+    await request(stack.app)
+      .get('/api/documents?limit=-1')
+      .set('Cookie', session.cookie)
+      .expect(422);
+
+    await request(stack.app)
+      .get('/api/documents?limit=0')
+      .set('Cookie', session.cookie)
+      .expect(422);
+
+    await request(stack.app)
+      .get('/api/documents?offset=-5')
+      .set('Cookie', session.cookie)
+      .expect(422);
   });
 
   it('requires a session to list documents', async () => {

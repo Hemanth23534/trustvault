@@ -60,7 +60,10 @@ function generatePassword(): string {
   return randomBytes(18).toString('base64url');
 }
 
-interface SeededAccount {
+export const DEMO_COMPANY_ID = 'c0000000-0000-4000-a000-000000000001';
+export const DEMO_COMPANY_NAME = 'TrustVault Demo Org';
+
+export interface SeededAccount {
   email: string;
   role: UserRole;
   status: 'created' | 'updated' | 'password-rotated';
@@ -68,8 +71,22 @@ interface SeededAccount {
   passwordSource: 'generated' | 'env' | 'unchanged';
 }
 
-async function seed(pool: ReturnType<typeof createPool>, env: Env, rotatePasswords: boolean) {
+export async function seed(
+  pool: ReturnType<typeof createPool>,
+  env: Env,
+  rotatePasswords: boolean,
+): Promise<SeededAccount[]> {
   const results: SeededAccount[] = [];
+  const now = new Date();
+
+  // Ensure the default demo organization exists before provisioning users
+  await pool.execute(
+    `INSERT IGNORE INTO companies (id, name, created_at, updated_at)
+     VALUES (?, ?, ?, ?)`,
+    [DEMO_COMPANY_ID, DEMO_COMPANY_NAME, now, now],
+  );
+
+  const defaultPassword = process.env.SEED_DEFAULT_PASSWORD?.trim() ?? '';
 
   for (const account of DEMO_ACCOUNTS) {
     const [rows] = await pool.execute<ExistingUserRow[]>(
@@ -78,7 +95,8 @@ async function seed(pool: ReturnType<typeof createPool>, env: Env, rotatePasswor
     );
     const existing = rows[0];
 
-    const suppliedPassword = process.env[account.passwordEnv]?.trim() ?? '';
+    const specificPassword = process.env[account.passwordEnv]?.trim() ?? '';
+    const suppliedPassword = specificPassword.length > 0 ? specificPassword : defaultPassword;
     const hasSuppliedPassword = suppliedPassword.length > 0;
     const shouldSetPassword = existing === undefined || rotatePasswords || hasSuppliedPassword;
 
@@ -91,31 +109,29 @@ async function seed(pool: ReturnType<typeof createPool>, env: Env, rotatePasswor
     const passwordHash =
       password === null ? null : await hashPassword(password, env.security.bcryptCost);
 
-    // Application-written timestamp, not SQL NOW(): the pool treats every
-    // DATETIME as UTC, and NOW() would use the server's session time zone.
-    const now = new Date();
-
     if (existing === undefined) {
       await pool.execute(
         `INSERT INTO users
-           (id, email, display_name, role, is_active, password_hash, password_changed_at)
-         VALUES (?, ?, ?, ?, 1, ?, ?)`,
-        [newId(), account.email, account.displayName, account.role, passwordHash, now],
+           (id, email, display_name, company_id, role, is_active, password_hash, password_changed_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+        [newId(), account.email, account.displayName, DEMO_COMPANY_ID, account.role, passwordHash, now],
       );
     } else if (passwordHash !== null) {
       await pool.execute(
         `UPDATE users
             SET display_name = ?, role = ?, is_active = 1, password_hash = ?,
+                company_id = COALESCE(company_id, ?),
                 password_changed_at = ?, failed_login_count = 0, locked_until = NULL
           WHERE id = ?`,
-        [account.displayName, account.role, passwordHash, now, existing.id],
+        [account.displayName, account.role, passwordHash, DEMO_COMPANY_ID, now, existing.id],
       );
     } else {
       await pool.execute(
         `UPDATE users
-            SET display_name = ?, role = ?, is_active = 1
+            SET display_name = ?, role = ?, is_active = 1,
+                company_id = COALESCE(company_id, ?)
           WHERE id = ?`,
-        [account.displayName, account.role, existing.id],
+        [account.displayName, account.role, DEMO_COMPANY_ID, existing.id],
       );
     }
 
@@ -146,11 +162,18 @@ async function seed(pool: ReturnType<typeof createPool>, env: Env, rotatePasswor
   return results;
 }
 
+export const seedDemoAccounts = seed;
+
 async function main(): Promise<number> {
   const { env } = loadEnv();
   const rotatePasswords = process.argv.includes('--rotate-passwords');
 
-  if (env.isProduction && process.env.SEED_ALLOW_PRODUCTION !== 'true') {
+  const allowProduction =
+    process.env.SEED_ALLOW_PRODUCTION === 'true' ||
+    process.env.SEED_DEMO_ACCOUNTS === 'true' ||
+    process.env.AUTO_SEED_DEMO_ACCOUNTS === 'true';
+
+  if (env.isProduction && !allowProduction) {
     console.error(
       'Refusing to seed demo accounts with NODE_ENV=production.\n' +
         'If this is a throwaway environment, re-run with SEED_ALLOW_PRODUCTION=true.',
@@ -201,18 +224,20 @@ async function main(): Promise<number> {
   }
 }
 
-main()
-  .then((exitCode) => {
-    process.exitCode = exitCode;
-  })
-  .catch((error: unknown) => {
-    if (error instanceof EnvValidationError) {
-      console.error(`\n${error.message}\n`);
-    } else if (error instanceof Error) {
-      console.error(`\nSeed failed: ${error.message}`);
-      if (error.cause instanceof Error) console.error(`Caused by: ${error.cause.message}`);
-    } else {
-      console.error('\nSeed failed:', error);
-    }
-    process.exitCode = 1;
-  });
+if (process.argv[1] && /seed\.(ts|js)$/.test(process.argv[1])) {
+  main()
+    .then((exitCode) => {
+      process.exitCode = exitCode;
+    })
+    .catch((error: unknown) => {
+      if (error instanceof EnvValidationError) {
+        console.error(`\n${error.message}\n`);
+      } else if (error instanceof Error) {
+        console.error(`\nSeed failed: ${error.message}`);
+        if (error.cause instanceof Error) console.error(`Caused by: ${error.cause.message}`);
+      } else {
+        console.error('\nSeed failed:', error);
+      }
+      process.exitCode = 1;
+    });
+}
