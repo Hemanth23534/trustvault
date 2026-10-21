@@ -34,10 +34,11 @@ coverage/
 .vitest/
 
 # Private document storage (uploaded files must never enter the repo)
-storage/
-server/storage/
+/storage/
+/server/storage/
 uploads/
 *.upload
+!server/src/storage/
 
 # Local database dumps / exports
 *.sql.gz
