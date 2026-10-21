@@ -6,7 +6,7 @@ import { EnvValidationError, loadEnv, REPO_ROOT, SERVER_ROOT } from './config/en
 import { createLogger } from './config/logger.js';
 import { API_PREFIX, SERVICE_NAME, SERVICE_VERSION } from './config/service-info.js';
 import { runMigrations } from './db/migrate.js';
-import { closePool, getPool, hasPool } from './db/pool.js';
+import { closePool, ensureDatabase, getPool, hasPool } from './db/pool.js';
 import { ensureStorageDir } from './storage/private-storage.js';
 
 /** How long in-flight requests get before the process is forced down. */
@@ -26,6 +26,9 @@ async function main(): Promise<void> {
     // create it must not stop health checks from answering.
     logger.warn({ err: error, storageDir: env.storageDir }, 'private storage directory unavailable');
   }
+
+  // Ensure target database exists before connecting the pool
+  await ensureDatabase(env, logger);
 
   // Auto-run schema migrations on startup so deployments are ready out of the box.
   try {

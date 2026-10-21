@@ -60,7 +60,18 @@ export interface MigrationStatus {
 }
 
 export async function ensureMigrationsTable(connection: PoolConnection): Promise<void> {
-  await connection.query(CREATE_MIGRATIONS_TABLE_SQL);
+  try {
+    await connection.query(CREATE_MIGRATIONS_TABLE_SQL);
+  } catch (err: unknown) {
+    const error = err as { code?: string; message?: string };
+    if (error.code === 'ER_UNKNOWN_COLLATION' || error.message?.includes('Unknown collation')) {
+      await connection.query(
+        CREATE_MIGRATIONS_TABLE_SQL.replace(/COLLATE=utf8mb4_0900_ai_ci/gi, ''),
+      );
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function readAppliedMigrations(
@@ -175,6 +186,12 @@ export async function runMigrations(options: MigrationRunOptions): Promise<Migra
                 err.errno === 1105);
             if (isTrigger) {
               log(`[warning] Database engine does not support triggers. Skipping statement: ${err.message ?? 'unsupported'}`);
+              executed += 1;
+              continue;
+            }
+            if (err.code === 'ER_UNKNOWN_COLLATION' || err.message?.includes('Unknown collation')) {
+              const fallback = statement.replace(/COLLATE=utf8mb4_0900_ai_ci/gi, '');
+              await connection.query(fallback);
               executed += 1;
               continue;
             }

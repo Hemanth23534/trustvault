@@ -1,5 +1,10 @@
-import { createPool as createMysqlPool, type Pool } from 'mysql2/promise';
+import {
+  createConnection as createMysqlConnection,
+  createPool as createMysqlPool,
+  type Pool,
+} from 'mysql2/promise';
 import type { Env } from '../config/env.js';
+import type { Logger } from '../config/logger.js';
 
 /** Upper bound for the readiness probe so /health never hangs. */
 export const DB_PING_TIMEOUT_MS = 2_000;
@@ -76,6 +81,46 @@ export function createPool(env: Env): Pool {
 }
 
 let pool: Pool | null = null;
+
+/**
+ * Ensures the target database exists on the MySQL / TiDB server by connecting
+ * without a database selected and issuing CREATE DATABASE IF NOT EXISTS.
+ */
+export async function ensureDatabase(env: Env, logger?: Logger): Promise<boolean> {
+  try {
+    const connection = await createMysqlConnection({
+      host: env.database.host,
+      port: env.database.port,
+      user: env.database.user,
+      password: env.database.password,
+      connectTimeout: 10_000,
+      ssl:
+        env.database.ssl ||
+        env.database.host.includes('tidbcloud.com') ||
+        env.database.host.includes('aivencloud.com') ||
+        env.database.port === 4000
+          ? {
+              minVersion: 'TLSv1.2',
+              rejectUnauthorized: env.database.sslRejectUnauthorized !== false,
+            }
+          : undefined,
+    });
+
+    try {
+      await connection.query(`CREATE DATABASE IF NOT EXISTS \`${env.database.name}\``);
+      logger?.info({ database: env.database.name }, 'database verified or created successfully');
+      return true;
+    } finally {
+      await connection.end().catch(() => {});
+    }
+  } catch (error) {
+    logger?.warn(
+      { err: error, database: env.database.name },
+      'could not auto-create database (proceeding with pool connection)',
+    );
+    return false;
+  }
+}
 
 /** Process-wide pool. Created lazily so importing the app never opens sockets. */
 export function getPool(env: Env): Pool {
