@@ -154,6 +154,29 @@ describe('CORS allow-list', () => {
     expect(response.body.error.code).toBe('ORIGIN_NOT_ALLOWED');
     expect(response.headers['access-control-allow-origin']).toBeUndefined();
   });
+
+  it('rejects an untrusted foreign render service with a typed 403', async () => {
+    const response = await request(buildApp())
+      .get('/api/health')
+      .set('Origin', 'https://evil-hacker.onrender.com')
+      .expect(403);
+
+    expect(response.body.error.code).toBe('ORIGIN_NOT_ALLOWED');
+    expect(response.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('allows the deployed TrustVault frontend on Render (trustvault-app-1i2l.onrender.com)', async () => {
+    const deployedOrigin = 'https://trustvault-app-1i2l.onrender.com';
+    const response = await request(buildApp())
+      .options('/api/documents')
+      .set('Origin', deployedOrigin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type, x-csrf-token')
+      .expect(204);
+
+    expect(response.headers['access-control-allow-origin']).toBe(deployedOrigin);
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
+  });
 });
 
 describe('body parsing limits', () => {

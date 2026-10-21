@@ -903,3 +903,119 @@ describe('private storage invariants', () => {
     ).toBe('2026/10/11111111-2222-4333-8444-555555555555.pdf');
   });
 });
+
+describe('file uploads from deployed frontend and origin validation', () => {
+  const DEPLOYED_ORIGIN = 'https://trustvault-app-1i2l.onrender.com';
+  const DOCX = Buffer.concat([
+    Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    Buffer.from('[Content_Types].xml', 'utf8'),
+    Buffer.from('word/document.xml', 'utf8'),
+  ]);
+
+  it('allows PDF upload from the deployed Render frontend origin', async () => {
+    const stack = buildStack();
+    await createUser(stack, { email: 'owner@trustvault.local', role: 'owner' });
+    const session = await login(stack, 'owner@trustvault.local');
+
+    const res = await request(stack.app)
+      .post('/api/documents')
+      .set('Cookie', session.cookie)
+      .set('X-CSRF-Token', session.csrf)
+      .set('Origin', DEPLOYED_ORIGIN)
+      .attach('file', PDF, { filename: 'raja_resume.pdf', contentType: 'application/pdf' })
+      .expect(201);
+
+    expect(res.body.document.fileName).toBe('raja_resume.pdf');
+    expect(res.body.document.mimeType).toBe('application/pdf');
+  });
+
+  it('allows DOCX upload from the deployed Render frontend origin', async () => {
+    const stack = buildStack();
+    await createUser(stack, { email: 'owner@trustvault.local', role: 'owner' });
+    const session = await login(stack, 'owner@trustvault.local');
+
+    const res = await request(stack.app)
+      .post('/api/documents')
+      .set('Cookie', session.cookie)
+      .set('X-CSRF-Token', session.csrf)
+      .set('Origin', DEPLOYED_ORIGIN)
+      .attach('file', DOCX, {
+        filename: 'contract.docx',
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      })
+      .expect(201);
+
+    expect(res.body.document.fileName).toBe('contract.docx');
+    expect(res.body.document.mimeType).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+  });
+
+  it('allows image (PNG) upload from the deployed Render frontend origin', async () => {
+    const stack = buildStack();
+    await createUser(stack, { email: 'owner@trustvault.local', role: 'owner' });
+    const session = await login(stack, 'owner@trustvault.local');
+
+    const res = await request(stack.app)
+      .post('/api/documents')
+      .set('Cookie', session.cookie)
+      .set('X-CSRF-Token', session.csrf)
+      .set('Origin', DEPLOYED_ORIGIN)
+      .attach('file', PNG, { filename: 'screenshot.png', contentType: 'image/png' })
+      .expect(201);
+
+    expect(res.body.document.fileName).toBe('screenshot.png');
+    expect(res.body.document.mimeType).toBe('image/png');
+  });
+
+  it('allows upload when Origin is absent but Referer is the deployed frontend', async () => {
+    const stack = buildStack();
+    await createUser(stack, { email: 'owner@trustvault.local', role: 'owner' });
+    const session = await login(stack, 'owner@trustvault.local');
+
+    const res = await request(stack.app)
+      .post('/api/documents')
+      .set('Cookie', session.cookie)
+      .set('X-CSRF-Token', session.csrf)
+      .set('Referer', `${DEPLOYED_ORIGIN}/documents/new`)
+      .attach('file', PDF, { filename: 'via_referer.pdf', contentType: 'application/pdf' })
+      .expect(201);
+
+    expect(res.body.document.fileName).toBe('via_referer.pdf');
+  });
+
+  it('rejects upload from an untrusted origin with 403 ORIGIN_NOT_ALLOWED', async () => {
+    const stack = buildStack();
+    await createUser(stack, { email: 'owner@trustvault.local', role: 'owner' });
+    const session = await login(stack, 'owner@trustvault.local');
+
+    const res = await request(stack.app)
+      .post('/api/documents')
+      .set('Cookie', session.cookie)
+      .set('X-CSRF-Token', session.csrf)
+      .set('Origin', 'https://attacker.example.com')
+      .attach('file', PDF, { filename: 'malicious.pdf', contentType: 'application/pdf' })
+      .expect(403);
+
+    expect(res.body.error.code).toBe('ORIGIN_NOT_ALLOWED');
+    expect(res.body.error.message).toMatch(/This origin is not allowed/);
+  });
+
+  it('rejects upload from an arbitrary foreign Render service with 403 ORIGIN_NOT_ALLOWED', async () => {
+    const stack = buildStack();
+    await createUser(stack, { email: 'owner@trustvault.local', role: 'owner' });
+    const session = await login(stack, 'owner@trustvault.local');
+
+    const res = await request(stack.app)
+      .post('/api/documents')
+      .set('Cookie', session.cookie)
+      .set('X-CSRF-Token', session.csrf)
+      .set('Origin', 'https://evil-hacker.onrender.com')
+      .attach('file', PDF, { filename: 'evil.pdf', contentType: 'application/pdf' })
+      .expect(403);
+
+    expect(res.body.error.code).toBe('ORIGIN_NOT_ALLOWED');
+    expect(res.body.error.message).toMatch(/This origin is not allowed/);
+  });
+});
+

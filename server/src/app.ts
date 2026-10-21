@@ -31,6 +31,9 @@ import { MySqlDocumentStore } from './documents/document-store.js';
 import { DocumentService } from './documents/document-service.js';
 import { FsDocumentStorage, R2DocumentStorage, type DocumentStorage } from './documents/storage.js';
 
+import { isAllowedOrigin } from './auth/origin.js';
+export { isAllowedOrigin };
+
 export interface CreateAppOptions {
   env: Env;
   logger: Logger;
@@ -51,29 +54,6 @@ export interface CreateAppOptions {
 /** JSON payloads are small; document uploads arrive as multipart. */
 const JSON_BODY_LIMIT = '64kb';
 const FORM_BODY_LIMIT = '16kb';
-
-export function isAllowedOrigin(origin: string | undefined, clientOrigins: readonly string[]): boolean {
-  if (!origin) return true;
-  if (clientOrigins.includes(origin)) return true;
-
-  try {
-    const parsed = new URL(origin);
-    const host = parsed.hostname.toLowerCase();
-
-    // Render subdomains (e.g. trustvault-app.onrender.com)
-    if (host.endsWith('.onrender.com')) return true;
-
-    // GitHub Pages deployments (e.g. username.github.io)
-    if (host.endsWith('.github.io')) return true;
-
-    // Localhost / 127.0.0.1 for development
-    if (host === 'localhost' || host === '127.0.0.1') return true;
-  } catch {
-    return false;
-  }
-
-  return false;
-}
 
 export function createApp(options: CreateAppOptions): Express {
   const { env, logger } = options;

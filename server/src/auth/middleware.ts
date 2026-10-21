@@ -2,6 +2,7 @@ import type { Request, RequestHandler } from 'express';
 import type { Env, } from '../config/env.js';
 import { AuthError, type AuthService } from './auth-service.js';
 import { readCookie } from './cookies.js';
+import { extractRequestOrigin, isAllowedOrigin } from './origin.js';
 import type { AuthContext, UserRole } from './types.js';
 
 /** Methods that change state and therefore require a CSRF token. */
@@ -33,8 +34,8 @@ export function requireAuthContext(req: Request): AuthContext {
 export function assertCsrfProtection(req: Request, options: AuthGuardOptions): void {
   const context = requireAuthContext(req);
 
-  const origin = req.get('origin');
-  if (origin !== undefined && !options.env.clientOrigins.includes(origin)) {
+  const origin = extractRequestOrigin(req);
+  if (origin !== undefined && !isAllowedOrigin(origin, options.env.clientOrigins)) {
     throw new AuthError(
       403,
       'ORIGIN_NOT_ALLOWED',
