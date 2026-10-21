@@ -83,14 +83,19 @@ export class InMemoryDocumentStore implements DocumentStore {
     document: StoredDocument,
     viewer: DocumentViewer,
   ): { mode: DocumentAccessMode; role: PermissionRole | null } | null {
-    if (viewer.companyId && document.companyId && viewer.companyId !== document.companyId) {
-      return null;
-    }
-    if (document.ownerId === viewer.id) return { mode: 'owner', role: null };
-
+    // 1. Explicit grant allows authorized access (including explicit cross-company sharing)
     const grant = this.grants.get(document.id)?.get(viewer.id);
     if (grant === 'editor' || grant === 'owner') return { mode: 'editor', role: grant };
     if (grant === 'viewer') return { mode: 'viewer', role: 'viewer' };
+
+    // 2. Strict tenant isolation: ungranted access across companies is blocked
+    if (viewer.companyId && document.companyId && viewer.companyId !== document.companyId) {
+      return null;
+    }
+
+    // 3. Document owner has owner access
+    if (document.ownerId === viewer.id) return { mode: 'owner', role: null };
+
     return null;
   }
 
@@ -144,6 +149,11 @@ export class InMemoryDocumentStore implements DocumentStore {
 
       if (query.createdFrom !== undefined && document.createdAt < query.createdFrom) return false;
       if (query.createdTo !== undefined && document.createdAt > query.createdTo) return false;
+
+      if (query.scope === 'mine' && document.ownerId !== viewer.id) return false;
+      if (query.scope === 'shared' && (document.ownerId === viewer.id || !this.grants.get(document.id)?.has(viewer.id))) return false;
+      if (query.scope === 'company' && document.companyId !== viewer.companyId) return false;
+
       return true;
     });
 

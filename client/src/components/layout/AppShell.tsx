@@ -2,14 +2,17 @@ import { useEffect, useState, type JSX } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { minutesUntil, roleLabel } from '../../lib/format';
+import type { UserRole } from '../../lib/auth';
 import { BrandMark } from '../BrandMark';
 import {
   IconActivity,
+  IconBuilding,
   IconClose,
   IconDashboard,
   IconFile,
   IconLogout,
   IconMenu,
+  IconSettings,
   IconShield,
   IconUpload,
   IconUsers,
@@ -20,15 +23,30 @@ interface NavItem {
   label: string;
   icon: JSX.Element;
   end?: boolean;
-  roles?: Array<'admin' | 'owner' | 'viewer'>;
+  roles?: UserRole[];
+  requireCompany?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: <IconDashboard />, end: true },
   { to: '/documents', label: 'Documents', icon: <IconFile /> },
-  { to: '/documents/new', label: 'Upload', icon: <IconUpload />, roles: ['admin', 'owner'] },
+  { to: '/documents/new', label: 'Upload', icon: <IconUpload />, roles: ['admin', 'owner', 'editor'] },
   { to: '/history', label: 'Access history', icon: <IconActivity />, roles: ['admin', 'owner'] },
-  { to: '/admin', label: 'Administration', icon: <IconUsers />, roles: ['admin'] },
+  {
+    to: '/workspace/members',
+    label: 'Members & Invites',
+    icon: <IconUsers />,
+    roles: ['admin', 'owner'],
+    requireCompany: true,
+  },
+  {
+    to: '/workspace/settings',
+    label: 'Workspace Settings',
+    icon: <IconSettings />,
+    roles: ['owner'],
+    requireCompany: true,
+  },
+  { to: '/admin', label: 'Administration', icon: <IconShield />, roles: ['admin'] },
 ];
 
 function pageTitle(pathname: string): string {
@@ -37,6 +55,9 @@ function pageTitle(pathname: string): string {
   if (pathname === '/documents/new') return 'Upload document';
   if (pathname.startsWith('/documents/')) return 'Document details';
   if (pathname === '/history') return 'Access history';
+  if (pathname === '/workspace/create') return 'Create company workspace';
+  if (pathname === '/workspace/members') return 'Members & invitations';
+  if (pathname === '/workspace/settings') return 'Workspace settings';
   if (pathname === '/admin') return 'Administration';
   return 'TrustVault';
 }
@@ -66,9 +87,11 @@ export function AppShell(): JSX.Element {
     return () => window.clearInterval(timer);
   }, []);
 
-  const visibleItems = NAV_ITEMS.filter(
-    (item) => item.roles === undefined || (user !== null && item.roles.includes(user.role)),
-  );
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.roles && (!user || !item.roles.includes(user.role))) return false;
+    if (item.requireCompany && (!user || !user.companyId)) return false;
+    return true;
+  });
 
   return (
     <div className="app-shell">
@@ -103,6 +126,21 @@ export function AppShell(): JSX.Element {
           ))}
         </nav>
 
+        {user !== null && !user.companyId ? (
+          <div style={{ margin: '0.75rem 1rem', padding: '0.75rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
+              Personal Account
+            </div>
+            <p className="muted small" style={{ marginBottom: '0.5rem', lineHeight: 1.3 }}>
+              Collaborate with a team by upgrading to a company workspace.
+            </p>
+            <NavLink to="/workspace/create" className="button button-secondary button-sm" style={{ width: '100%', justifyContent: 'center' }}>
+              <IconBuilding width={14} height={14} />
+              Create Company
+            </NavLink>
+          </div>
+        ) : null}
+
         <div className="sidebar-foot">
           <div className="session-chip">
             <IconShield width={14} height={14} />
@@ -118,7 +156,7 @@ export function AppShell(): JSX.Element {
                 <strong>{user.displayName ?? user.email}</strong>
                 <span className="muted small">
                   {roleLabel(user.role)}
-                  {user.companyName ? ` • ${user.companyName}` : ''}
+                  {user.companyName ? ` • ${user.companyName}` : ' • Personal'}
                 </span>
               </div>
               <button
@@ -156,7 +194,7 @@ export function AppShell(): JSX.Element {
           </button>
           <div className="topbar-heading">
             <span className="topbar-eyebrow">
-              {user?.companyName ? `${user.companyName} workspace` : 'TrustVault workspace'}
+              {user?.companyName ? `${user.companyName} workspace` : 'Personal workspace'}
             </span>
             <h1>{pageTitle(location.pathname)}</h1>
           </div>

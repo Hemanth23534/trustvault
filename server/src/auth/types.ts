@@ -1,5 +1,5 @@
-/** The three product roles. Kept in one place so SQL, guards and UI agree. */
-export const USER_ROLES = ['admin', 'owner', 'viewer'] as const;
+/** The product roles: owner (full workspace control), admin (member/document management), editor (edit own and granted), viewer (read/download). */
+export const USER_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 /** Account-level role check that never trusts client input. */
@@ -11,6 +11,21 @@ export interface Company {
   id: string;
   name: string;
   domain?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CompanyInvitation {
+  id: string;
+  companyId: string;
+  companyName?: string;
+  invitedBy: string;
+  invitedByName?: string;
+  email: string;
+  role: 'admin' | 'editor' | 'viewer';
+  token: string;
+  status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  expiresAt: Date;
   createdAt: Date;
   updatedAt: Date;
 }

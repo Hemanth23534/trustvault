@@ -68,6 +68,7 @@ export interface DocumentFilters {
   order?: 'asc' | 'desc';
   limit?: number;
   offset?: number;
+  scope?: 'all' | 'mine' | 'shared' | 'company';
 }
 
 /** Builds a query string from the filters that are actually set. */
@@ -86,6 +87,7 @@ export function buildDocumentsQuery(filters: DocumentFilters): string {
   if (filters.to) params.set('to', filters.to);
   if (filters.sort) params.set('sort', filters.sort);
   if (filters.order) params.set('order', filters.order);
+  if (filters.scope && filters.scope !== 'all') params.set('scope', filters.scope);
   if (filters.limit !== undefined) params.set('limit', String(filters.limit));
   if (filters.offset !== undefined) params.set('offset', String(filters.offset));
 

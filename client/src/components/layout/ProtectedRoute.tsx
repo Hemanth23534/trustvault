@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import type { UserRole } from '../../lib/auth';
 import { BrandMark } from '../BrandMark';
 import { AccessDenied, LoadingBlock } from '../ui/Feedback';
 
@@ -29,11 +30,26 @@ export function RequireAuth(): JSX.Element {
  * Frontend role gate. This is purely for a clear experience: the API enforces
  * the same rule on every request, and the 403 it returns is still handled.
  */
-export function RequireRole({ role }: { role: 'admin' | 'owner' }): JSX.Element {
+export function RequireRole({
+  role,
+  roles,
+}: {
+  role?: UserRole;
+  roles?: UserRole[];
+}): JSX.Element {
   const { user } = useAuth();
 
   if (user === null) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (roles && !roles.includes(user.role)) {
+    return (
+      <AccessDenied
+        title="Access restricted"
+        message="You do not have the required permissions to view this section."
+      />
+    );
   }
 
   if (role === 'admin' && user.role !== 'admin') {

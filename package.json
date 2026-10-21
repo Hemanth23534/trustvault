@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "TrustVault - secure document sharing for teams. Snovasys hackathon build.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "workspaces": [
     "client",
     "server"

@@ -33,6 +33,7 @@ export function DocumentsPage(): JSX.Element {
   const [category, setCategory] = useState<DocumentCategory | ''>('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [scope, setScope] = useState<'all' | 'mine' | 'shared' | 'company'>('all');
   const [offset, setOffset] = useState(0);
 
   const [page, setPage] = useState<DocumentPage | null>(null);
@@ -61,8 +62,9 @@ export function DocumentsPage(): JSX.Element {
       order: 'desc',
       limit: PAGE_SIZE,
       offset,
+      scope: scope !== 'all' ? scope : undefined,
     }),
-    [search, category, owner, from, to, offset],
+    [search, category, owner, from, to, offset, scope],
   );
 
   const load = useCallback(async () => {
@@ -93,6 +95,7 @@ export function DocumentsPage(): JSX.Element {
     setFrom('');
     setTo('');
     setOffset(0);
+    setScope('all');
   }
 
   async function handleDownload(document: DocumentItem): Promise<void> {
@@ -111,13 +114,14 @@ export function DocumentsPage(): JSX.Element {
 
   const documents = page?.documents ?? [];
   const total = page?.pagination.total ?? 0;
-  const canUpload = user?.role === 'owner' || user?.role === 'admin';
+  const canUpload = user?.role === 'owner' || user?.role === 'admin' || user?.role === 'editor';
   const offlineSearchActive =
     search.length > 0 ||
     owner.length > 0 ||
     category !== '' ||
     from.length > 0 ||
-    to.length > 0;
+    to.length > 0 ||
+    scope !== 'all';
 
   return (
     <div className="stack">
@@ -148,6 +152,59 @@ export function DocumentsPage(): JSX.Element {
           {notice}
         </p>
       ) : null}
+
+      <div className="scope-tabs" role="tablist" aria-label="Document scopes">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={scope === 'all'}
+          className={`scope-tab ${scope === 'all' ? 'is-active' : ''}`}
+          onClick={() => {
+            setScope('all');
+            setOffset(0);
+          }}
+        >
+          All documents
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={scope === 'mine'}
+          className={`scope-tab ${scope === 'mine' ? 'is-active' : ''}`}
+          onClick={() => {
+            setScope('mine');
+            setOffset(0);
+          }}
+        >
+          My documents
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={scope === 'shared'}
+          className={`scope-tab ${scope === 'shared' ? 'is-active' : ''}`}
+          onClick={() => {
+            setScope('shared');
+            setOffset(0);
+          }}
+        >
+          Shared with me
+        </button>
+        {user?.companyId ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === 'company'}
+            className={`scope-tab ${scope === 'company' ? 'is-active' : ''}`}
+            onClick={() => {
+              setScope('company');
+              setOffset(0);
+            }}
+          >
+            Company library
+          </button>
+        ) : null}
+      </div>
 
       <section className="toolbar" aria-label="Document filters">
         <div className="field toolbar-search">

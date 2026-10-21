@@ -205,14 +205,33 @@ describe('Company Registration and Multi-Tenant Isolation', () => {
       .set('Cookie', cookieB)
       .expect(404);
 
-    // 7. User A cannot share Company A document with User B from Company B
+    // 7. Explicit cross-company sharing: User A can explicitly grant access to User B
     const csrfA = resA.body.session.csrfToken;
     const shareRes = await request(app)
       .post(`/api/documents/${doc.id}/permissions`)
       .set('Cookie', cookieA)
       .set('X-CSRF-Token', csrfA)
       .send({ email: 'bob@companyb.example', role: 'viewer' })
-      .expect(403);
-    expect(shareRes.body.error.code).toBe('CROSS_TENANT_SHARING_FORBIDDEN');
+      .expect(200);
+    expect(shareRes.body.permissions.some((p: any) => p.email === 'bob@companyb.example')).toBe(true);
+
+    // 8. User B now sees the shared document and can access it
+    const directAccessRes = await request(app)
+      .get(`/api/documents/${doc.id}`)
+      .set('Cookie', cookieB)
+      .expect(200);
+    expect(directAccessRes.body.document.id).toBe(doc.id);
+
+    // 9. When User A revokes access, User B immediately loses access (404)
+    await request(app)
+      .delete(`/api/documents/${doc.id}/permissions/${resB.body.user.id}`)
+      .set('Cookie', cookieA)
+      .set('X-CSRF-Token', csrfA)
+      .expect(200);
+
+    await request(app)
+      .get(`/api/documents/${doc.id}`)
+      .set('Cookie', cookieB)
+      .expect(404);
   });
 });

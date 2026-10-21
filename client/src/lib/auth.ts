@@ -1,6 +1,6 @@
 import { API_PREFIX, request, type ApiResult } from './api';
 
-export type UserRole = 'admin' | 'owner' | 'viewer';
+export type UserRole = 'owner' | 'admin' | 'editor' | 'viewer';
 
 export interface AuthUser {
   id: string;
@@ -60,11 +60,12 @@ export function login(email: string, password: string): Promise<ApiResult<AuthPa
   });
 }
 
-export function registerCompany(input: {
+export function register(input: {
   name: string;
   email: string;
   password: string;
-  companyName: string;
+  companyName?: string;
+  inviteToken?: string;
 }): Promise<ApiResult<AuthPayload>> {
   return request<AuthPayload>(`${API_PREFIX}/auth/register`, {
     method: 'POST',
@@ -72,6 +73,8 @@ export function registerCompany(input: {
     body: JSON.stringify(input),
   });
 }
+
+export const registerCompany = register;
 
 export function fetchMe(): Promise<ApiResult<AuthPayload>> {
   return request<AuthPayload>(`${API_PREFIX}/auth/me`);

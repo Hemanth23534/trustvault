@@ -15,7 +15,7 @@ import type {
   SessionRecord,
   UserWithCredentials,
 } from '../../src/auth/auth-store.js';
-import type { AuthUser, Company, UserRole } from '../../src/auth/types.js';
+import type { AuthUser, Company, CompanyInvitation, UserRole } from '../../src/auth/types.js';
 
 interface StoredSession {
   id: string;
@@ -50,6 +50,7 @@ export interface NewUserInput {
 export class InMemoryAuthStore implements AuthStore {
   readonly companies = new Map<string, Company>();
   readonly users = new Map<string, UserWithCredentials>();
+  readonly invitations = new Map<string, CompanyInvitation>();
   readonly sessions = new Map<string, StoredSession>();
   readonly auditEvents: AuditLogEntry[] = [];
   readonly checkpoints: CheckpointRecord[] = [];
@@ -73,6 +74,15 @@ export class InMemoryAuthStore implements AuthStore {
   async findCompanyById(id: string): Promise<Company | null> {
     const company = this.companies.get(id);
     return company ? { ...company } : null;
+  }
+
+  async updateCompany(id: string, patch: { name?: string; domain?: string | null }): Promise<Company | null> {
+    const company = this.companies.get(id);
+    if (!company) return null;
+    if (patch.name !== undefined) company.name = patch.name;
+    if (patch.domain !== undefined) company.domain = patch.domain;
+    company.updatedAt = new Date();
+    return { ...company };
   }
 
   async createUser(input: CreateUserInput): Promise<UserWithCredentials> {
@@ -105,6 +115,66 @@ export class InMemoryAuthStore implements AuthStore {
         role: u.role,
         isActive: u.isActive,
       }));
+  }
+
+  async updateUserRoleAndCompany(userId: string, companyId: string | null, role: UserRole): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.companyId = companyId;
+      user.companyName = companyId ? this.companies.get(companyId)?.name ?? null : null;
+      user.role = role;
+    }
+  }
+
+  async createInvitation(input: {
+    id: string;
+    companyId: string;
+    invitedBy: string;
+    email: string;
+    role: 'admin' | 'editor' | 'viewer';
+    token: string;
+    expiresAt: Date;
+    createdAt: Date;
+  }): Promise<CompanyInvitation> {
+    const company = this.companies.get(input.companyId);
+    const inviter = this.users.get(input.invitedBy);
+    const invitation: CompanyInvitation = {
+      id: input.id,
+      companyId: input.companyId,
+      companyName: company?.name,
+      invitedBy: input.invitedBy,
+      invitedByName: inviter?.displayName ?? undefined,
+      email: input.email.trim().toLowerCase(),
+      role: input.role,
+      token: input.token,
+      status: 'pending',
+      expiresAt: input.expiresAt,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+    };
+    this.invitations.set(invitation.id, invitation);
+    return invitation;
+  }
+
+  async findInvitationByToken(token: string): Promise<CompanyInvitation | null> {
+    for (const inv of this.invitations.values()) {
+      if (inv.token === token) return { ...inv };
+    }
+    return null;
+  }
+
+  async listCompanyInvitations(companyId: string): Promise<CompanyInvitation[]> {
+    return [...this.invitations.values()]
+      .filter((i) => i.companyId === companyId)
+      .map((i) => ({ ...i }));
+  }
+
+  async updateInvitationStatus(id: string, status: 'accepted' | 'revoked' | 'expired'): Promise<void> {
+    const inv = this.invitations.get(id);
+    if (inv) {
+      inv.status = status;
+      inv.updatedAt = new Date();
+    }
   }
 
   addUser(input: NewUserInput): UserWithCredentials {

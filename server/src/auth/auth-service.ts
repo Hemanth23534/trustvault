@@ -70,6 +70,20 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+import { randomBytes } from 'node:crypto';
+import type { Company, CompanyInvitation, UserRole } from './types.js';
+
+export interface RegisterUserInput {
+  displayName: string;
+  email: string;
+  password: string;
+  companyName?: string | undefined;
+  inviteToken?: string | undefined;
+  ip?: string | undefined;
+  userAgent?: string | undefined;
+  requestId?: string | undefined;
+}
+
 export interface RegisterCompanyInput {
   displayName: string;
   email: string;
@@ -113,6 +127,10 @@ export class AuthService {
   }
 
   async registerCompany(input: RegisterCompanyInput): Promise<LoginResult> {
+    return this.register(input);
+  }
+
+  async register(input: RegisterUserInput): Promise<LoginResult> {
     const now = this.clock();
     const email = normalizeEmail(input.email);
 
@@ -129,12 +147,37 @@ export class AuthService {
       );
     }
 
-    const companyId = newId();
-    const company = await this.store.createCompany({
-      id: companyId,
-      name: input.companyName.trim(),
-      createdAt: now,
-    });
+    let companyId: string | null = null;
+    let companyName: string | null = null;
+    let role: UserRole = 'owner';
+
+    // 1. If an invitation token is provided, validate and join that company
+    if (input.inviteToken?.trim()) {
+      const invite = await this.store.findInvitationByToken(input.inviteToken.trim());
+      if (!invite || invite.status !== 'pending' || invite.expiresAt.getTime() <= now.getTime()) {
+        throw new AuthError(400, 'INVALID_INVITATION', 'This invitation is invalid or has expired.');
+      }
+      companyId = invite.companyId;
+      companyName = invite.companyName ?? null;
+      role = invite.role;
+      await this.store.updateInvitationStatus(invite.id, 'accepted');
+    } else if (input.companyName && input.companyName.trim().length >= 2) {
+      // 2. If company name is provided, create a new company workspace
+      const newCompanyId = newId();
+      const company = await this.store.createCompany({
+        id: newCompanyId,
+        name: input.companyName.trim(),
+        createdAt: now,
+      });
+      companyId = company.id;
+      companyName = company.name;
+      role = 'owner';
+    } else {
+      // 3. Personal workspace: no company, user owns their personal workspace
+      companyId = null;
+      companyName = null;
+      role = 'owner';
+    }
 
     const passwordHash = await hashPassword(input.password, this.env.security.bcryptCost);
     const userId = newId();
@@ -142,12 +185,12 @@ export class AuthService {
       id: userId,
       email,
       displayName: input.displayName.trim(),
-      companyId: company.id,
-      role: 'owner',
+      companyId,
+      role,
       passwordHash,
       createdAt: now,
     });
-    user.companyName = company.name;
+    user.companyName = companyName;
 
     const token = generateSessionToken();
     const tokenHash = hashSessionToken(token);
@@ -168,13 +211,13 @@ export class AuthService {
 
     await this.audit({
       userId: user.id,
-      companyId: company.id,
-      action: 'company_registered',
+      companyId,
+      action: companyId ? 'company_registered' : 'user_registered',
       outcome: 'success',
       ip: input.ip,
       userAgent: input.userAgent,
       requestId: input.requestId,
-      metadata: { companyName: company.name },
+      metadata: companyName ? { companyName } : { workspaceType: 'personal' },
     });
 
     return {
@@ -477,6 +520,293 @@ export class AuthService {
 
   async listCheckpoints(): Promise<CheckpointRecord[]> {
     return this.store.listCheckpoints();
+  }
+
+  async createCompanyWorkspace(
+    actor: AuthUser,
+    input: { companyName: string },
+    context?: { ip?: string; userAgent?: string; requestId?: string },
+  ): Promise<AuthUser> {
+    const name = input.companyName.trim();
+    if (name.length < 2) {
+      throw new AuthError(422, 'VALIDATION_ERROR', 'Company name must be at least 2 characters.');
+    }
+    const now = this.clock();
+    const company = await this.store.createCompany({
+      id: newId(),
+      name,
+      createdAt: now,
+    });
+
+    await this.store.updateUserRoleAndCompany(actor.id, company.id, 'owner');
+
+    await this.audit({
+      userId: actor.id,
+      companyId: company.id,
+      action: 'company.created',
+      outcome: 'success',
+      resourceType: 'company',
+      resourceId: company.id,
+      ip: context?.ip,
+      userAgent: context?.userAgent,
+      requestId: context?.requestId,
+      metadata: { companyName: company.name },
+    });
+
+    return {
+      ...actor,
+      companyId: company.id,
+      companyName: company.name,
+      role: 'owner',
+    };
+  }
+
+  async getWorkspace(actor: AuthUser): Promise<{ company: Company | null; isPersonal: boolean }> {
+    if (!actor.companyId) {
+      return { company: null, isPersonal: true };
+    }
+    const company = await this.store.findCompanyById(actor.companyId);
+    return { company, isPersonal: false };
+  }
+
+  async updateWorkspaceSettings(
+    actor: AuthUser,
+    patch: { name?: string; domain?: string | null },
+    context?: { ip?: string; userAgent?: string; requestId?: string },
+  ): Promise<Company> {
+    if (!actor.companyId) {
+      throw new AuthError(400, 'NO_COMPANY_WORKSPACE', 'You do not belong to a company workspace.');
+    }
+    if (actor.role !== 'owner') {
+      throw new AuthError(403, 'FORBIDDEN', 'Only workspace owners can update workspace settings.');
+    }
+    const updated = await this.store.updateCompany(actor.companyId, patch);
+    if (!updated) {
+      throw new AuthError(404, 'COMPANY_NOT_FOUND', 'Workspace not found.');
+    }
+    await this.audit({
+      userId: actor.id,
+      companyId: actor.companyId,
+      action: 'company.settings_updated',
+      outcome: 'success',
+      resourceType: 'company',
+      resourceId: actor.companyId,
+      ip: context?.ip,
+      userAgent: context?.userAgent,
+      requestId: context?.requestId,
+      metadata: patch,
+    });
+    return updated;
+  }
+
+  async listWorkspaceMembers(actor: AuthUser): Promise<AuthUser[]> {
+    if (!actor.companyId) {
+      return [toAuthUser(actor)];
+    }
+    return this.store.listCompanyUsers(actor.companyId);
+  }
+
+  async inviteMember(
+    actor: AuthUser,
+    input: { email: string; role: 'admin' | 'editor' | 'viewer' },
+    context?: { ip?: string; userAgent?: string; requestId?: string },
+  ): Promise<CompanyInvitation> {
+    if (!actor.companyId) {
+      throw new AuthError(400, 'NO_COMPANY_WORKSPACE', 'Create or join a company workspace first to invite members.');
+    }
+    if (actor.role !== 'owner' && actor.role !== 'admin') {
+      throw new AuthError(403, 'FORBIDDEN', 'Only owners and admins can invite members.');
+    }
+    if (actor.role === 'admin' && input.role === 'admin') {
+      throw new AuthError(403, 'FORBIDDEN', 'Only the workspace owner can invite new administrators.');
+    }
+
+    const email = normalizeEmail(input.email);
+    const existingUser = await this.store.findUserByEmail(email);
+    if (existingUser?.companyId === actor.companyId) {
+      throw new AuthError(409, 'ALREADY_MEMBER', 'That user is already a member of this workspace.');
+    }
+
+    const token = randomBytes(24).toString('base64url');
+    const now = this.clock();
+    const expiresAt = new Date(now.getTime() + 7 * 24 * 3600_000); // 7 days
+
+    const invitation = await this.store.createInvitation({
+      id: newId(),
+      companyId: actor.companyId,
+      invitedBy: actor.id,
+      email,
+      role: input.role,
+      token,
+      expiresAt,
+      createdAt: now,
+    });
+
+    await this.audit({
+      userId: actor.id,
+      companyId: actor.companyId,
+      action: 'company.member_invited',
+      outcome: 'success',
+      resourceType: 'invitation',
+      resourceId: invitation.id,
+      ip: context?.ip,
+      userAgent: context?.userAgent,
+      requestId: context?.requestId,
+      metadata: { targetEmail: email, role: input.role },
+    });
+
+    return invitation;
+  }
+
+  async listWorkspaceInvitations(actor: AuthUser): Promise<CompanyInvitation[]> {
+    if (!actor.companyId) return [];
+    if (actor.role !== 'owner' && actor.role !== 'admin') {
+      throw new AuthError(403, 'FORBIDDEN', 'Only owners and admins can view workspace invitations.');
+    }
+    return this.store.listCompanyInvitations(actor.companyId);
+  }
+
+  async revokeInvitation(
+    actor: AuthUser,
+    invitationId: string,
+    context?: { ip?: string; userAgent?: string; requestId?: string },
+  ): Promise<void> {
+    if (!actor.companyId || (actor.role !== 'owner' && actor.role !== 'admin')) {
+      throw new AuthError(403, 'FORBIDDEN', 'Only owners and admins can revoke invitations.');
+    }
+    await this.store.updateInvitationStatus(invitationId, 'revoked');
+    await this.audit({
+      userId: actor.id,
+      companyId: actor.companyId,
+      action: 'company.invitation_revoked',
+      outcome: 'success',
+      resourceType: 'invitation',
+      resourceId: invitationId,
+      ip: context?.ip,
+      userAgent: context?.userAgent,
+      requestId: context?.requestId,
+    });
+  }
+
+  async acceptInvitation(
+    actor: AuthUser,
+    token: string,
+    context?: { ip?: string; userAgent?: string; requestId?: string },
+  ): Promise<AuthUser> {
+    const invite = await this.store.findInvitationByToken(token.trim());
+    const now = this.clock();
+    if (!invite || invite.status !== 'pending' || invite.expiresAt.getTime() <= now.getTime()) {
+      throw new AuthError(400, 'INVALID_INVITATION', 'This invitation is invalid or has expired.');
+    }
+
+    await this.store.updateUserRoleAndCompany(actor.id, invite.companyId, invite.role);
+    await this.store.updateInvitationStatus(invite.id, 'accepted');
+
+    await this.audit({
+      userId: actor.id,
+      companyId: invite.companyId,
+      action: 'company.invitation_accepted',
+      outcome: 'success',
+      resourceType: 'company',
+      resourceId: invite.companyId,
+      ip: context?.ip,
+      userAgent: context?.userAgent,
+      requestId: context?.requestId,
+      metadata: { role: invite.role },
+    });
+
+    const company = await this.store.findCompanyById(invite.companyId);
+    return {
+      ...actor,
+      companyId: invite.companyId,
+      companyName: company?.name ?? null,
+      role: invite.role,
+    };
+  }
+
+  async removeMember(
+    actor: AuthUser,
+    targetUserId: string,
+    context?: { ip?: string; userAgent?: string; requestId?: string },
+  ): Promise<void> {
+    if (!actor.companyId) {
+      throw new AuthError(400, 'NO_COMPANY_WORKSPACE', 'You do not belong to a company workspace.');
+    }
+    if (actor.role !== 'owner' && actor.role !== 'admin') {
+      throw new AuthError(403, 'FORBIDDEN', 'Only owners and admins can remove members.');
+    }
+    if (actor.id === targetUserId) {
+      throw new AuthError(422, 'INVALID_OPERATION', 'You cannot remove yourself from the workspace.');
+    }
+
+    const targetUser = await this.store.findUserById(targetUserId);
+    if (!targetUser || targetUser.companyId !== actor.companyId) {
+      throw new AuthError(404, 'MEMBER_NOT_FOUND', 'User is not a member of this workspace.');
+    }
+    if (targetUser.role === 'owner') {
+      throw new AuthError(403, 'FORBIDDEN', 'The workspace owner cannot be removed.');
+    }
+    if (actor.role === 'admin' && targetUser.role === 'admin') {
+      throw new AuthError(403, 'FORBIDDEN', 'Admins cannot remove other administrators.');
+    }
+
+    const now = this.clock();
+    await this.store.updateUserRoleAndCompany(targetUserId, null, 'owner');
+    await this.store.revokeUserSessions(targetUserId, now);
+
+    await this.audit({
+      userId: actor.id,
+      companyId: actor.companyId,
+      targetUserId,
+      action: 'company.member_removed',
+      outcome: 'success',
+      resourceType: 'user',
+      resourceId: targetUserId,
+      ip: context?.ip,
+      userAgent: context?.userAgent,
+      requestId: context?.requestId,
+      metadata: { targetEmail: targetUser.email },
+    });
+  }
+
+  async updateMemberRole(
+    actor: AuthUser,
+    targetUserId: string,
+    newRole: UserRole,
+    context?: { ip?: string; userAgent?: string; requestId?: string },
+  ): Promise<void> {
+    if (!actor.companyId) {
+      throw new AuthError(400, 'NO_COMPANY_WORKSPACE', 'You do not belong to a company workspace.');
+    }
+    if (actor.role !== 'owner') {
+      throw new AuthError(403, 'FORBIDDEN', 'Only workspace owners can change member roles.');
+    }
+    if (actor.id === targetUserId) {
+      throw new AuthError(422, 'INVALID_OPERATION', 'You cannot change your own role.');
+    }
+
+    const targetUser = await this.store.findUserById(targetUserId);
+    if (!targetUser || targetUser.companyId !== actor.companyId) {
+      throw new AuthError(404, 'MEMBER_NOT_FOUND', 'User is not a member of this workspace.');
+    }
+
+    const now = this.clock();
+    await this.store.updateUserRoleAndCompany(targetUserId, actor.companyId, newRole);
+    await this.store.revokeUserSessions(targetUserId, now);
+
+    await this.audit({
+      userId: actor.id,
+      companyId: actor.companyId,
+      targetUserId,
+      action: 'company.member_role_changed',
+      outcome: 'success',
+      resourceType: 'user',
+      resourceId: targetUserId,
+      ip: context?.ip,
+      userAgent: context?.userAgent,
+      requestId: context?.requestId,
+      metadata: { targetEmail: targetUser.email, previousRole: targetUser.role, newRole },
+    });
   }
 
   /** Constant-time CSRF check, exposed so the middleware stays declarative. */

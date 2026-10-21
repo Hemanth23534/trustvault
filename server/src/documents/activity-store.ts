@@ -14,7 +14,7 @@ export interface DirectoryUser {
   id: string;
   email: string;
   displayName: string | null;
-  role: 'admin' | 'owner' | 'viewer';
+  role: 'owner' | 'admin' | 'editor' | 'viewer';
   isActive: boolean;
   companyId?: string | null;
 }

@@ -35,12 +35,21 @@ export interface AuthContextValue {
   csrfToken: string | null;
   notice: string | null;
   login: (email: string, password: string) => Promise<LoginOutcome>;
+  register: (input: {
+    name: string;
+    email: string;
+    password: string;
+    companyName?: string;
+    inviteToken?: string;
+  }) => Promise<LoginOutcome>;
   registerCompany: (input: {
     name: string;
     email: string;
     password: string;
-    companyName: string;
+    companyName?: string;
+    inviteToken?: string;
   }) => Promise<LoginOutcome>;
+  setUser: (user: AuthUser) => void;
   logout: () => Promise<void>;
   /** Called by the API layer when a session is no longer valid. */
   expireSession: (message?: string) => void;
@@ -128,12 +137,13 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     }
   }, []);
 
-  const registerCompany = useCallback(
+  const register = useCallback(
     async (input: {
       name: string;
       email: string;
       password: string;
-      companyName: string;
+      companyName?: string;
+      inviteToken?: string;
     }): Promise<LoginOutcome> => {
       try {
         const result = await registerCompanyRequest(input);
@@ -158,6 +168,8 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     [],
   );
 
+  const registerCompany = register;
+
   const logout = useCallback(async () => {
     const token = session?.csrfToken;
     try {
@@ -179,7 +191,9 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       csrfToken: session?.csrfToken ?? null,
       notice,
       login,
+      register,
       registerCompany,
+      setUser,
       logout,
       expireSession,
       clearNotice: () => setNotice(null),

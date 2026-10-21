@@ -26,7 +26,8 @@ const registerBodySchema = z.object({
     .min(3)
     .max(320)
     .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Enter a valid email address'),
-  companyName: z.string().trim().min(2, 'Company name must be at least 2 characters').max(120),
+  companyName: z.string().trim().max(120).optional(),
+  inviteToken: z.string().trim().max(128).optional(),
   password: z.string().min(12, 'Password must be at least 12 characters').max(128),
 });
 
@@ -138,11 +139,12 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
     const parsed = registerBodySchema.safeParse(req.body);
     if (!parsed.success) throw parsed.error;
 
-    const result = await service.registerCompany({
+    const result = await service.register({
       displayName: parsed.data.name,
       email: parsed.data.email,
       password: parsed.data.password,
-      companyName: parsed.data.companyName,
+      companyName: parsed.data.companyName?.trim() || undefined,
+      inviteToken: parsed.data.inviteToken?.trim() || undefined,
       ip: req.ip,
       userAgent: req.get('user-agent'),
       requestId: req.id,

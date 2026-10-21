@@ -25,6 +25,7 @@ export interface ListDocumentsQuery {
   sort: DocumentSortField;
   limit: number;
   offset: number;
+  scope?: 'all' | 'mine' | 'shared' | 'company' | undefined;
 }
 
 export interface DocumentListResult {
@@ -186,9 +187,21 @@ export class MySqlDocumentStore implements DocumentStore {
       conditions.push('d.created_at <= ?');
       filterParams.push(query.createdTo);
     }
-    if (viewer.companyId) {
-      conditions.push('(d.company_id = ? OR d.company_id IS NULL)');
+
+    if (query.scope === 'mine') {
+      conditions.push('d.owner_id = ?');
+      filterParams.push(viewer.id);
+    } else if (query.scope === 'shared') {
+      conditions.push('(p.user_id IS NOT NULL AND d.owner_id <> ?)');
+      filterParams.push(viewer.id);
+    } else if (query.scope === 'company' && viewer.companyId) {
+      conditions.push('d.company_id = ?');
       filterParams.push(viewer.companyId);
+    } else if (viewer.companyId) {
+      conditions.push('(d.company_id = ? OR p.user_id IS NOT NULL OR d.owner_id = ?)');
+      filterParams.push(viewer.companyId);
+    } else {
+      conditions.push('(d.company_id IS NULL OR p.user_id IS NOT NULL OR d.owner_id = ?)');
     }
 
     const where = conditions.join(' AND ');
@@ -233,8 +246,10 @@ export class MySqlDocumentStore implements DocumentStore {
     const conditions = ['d.id = ?', 'd.deleted_at IS NULL', ACCESS_PREDICATE];
     const bindings: Array<string | number | Date> = [viewer.id, viewer.id, id, viewer.id];
     if (viewer.companyId) {
-      conditions.push('(d.company_id = ? OR d.company_id IS NULL)');
+      conditions.push('(d.company_id = ? OR p.user_id IS NOT NULL OR d.owner_id = ?)');
       bindings.push(viewer.companyId);
+    } else {
+      conditions.push('(d.company_id IS NULL OR p.user_id IS NOT NULL OR d.owner_id = ?)');
     }
 
     const [rows] = await this.pool.query<DocumentRow[]>(

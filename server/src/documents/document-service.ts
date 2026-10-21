@@ -73,6 +73,7 @@ export interface ListDocumentsRequest {
   order: DocumentSortField['order'];
   limit: number;
   offset: number;
+  scope?: 'all' | 'mine' | 'shared' | 'company' | undefined;
 }
 
 export interface UpdateDocumentPatch {
@@ -256,6 +257,7 @@ export class DocumentService {
       sort: { field: request.sort, order: request.order },
       limit: request.limit,
       offset: request.offset,
+      scope: request.scope,
     };
 
     const result = await this.store.list(viewerOf(actor), query);

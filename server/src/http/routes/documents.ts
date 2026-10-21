@@ -34,6 +34,7 @@ const listQuerySchema = z.object({
   order: z.enum(['asc', 'desc']).default('desc'),
   limit: z.coerce.number().int().min(1).max(100).default(25),
   offset: z.coerce.number().int().min(0).max(100_000).default(0),
+  scope: z.enum(['all', 'mine', 'shared', 'company']).optional(),
 });
 
 const updateBodySchema = z
@@ -139,7 +140,7 @@ export function createDocumentsRouter(options: DocumentsRouterOptions): Router {
   };
 
   /** POST /api/documents — upload one file plus optional metadata. */
-  router.post('/', guard, requireRole('owner', 'admin'), receiveSingleFile, async (req, res) => {
+  router.post('/', guard, requireRole('owner', 'admin', 'editor'), receiveSingleFile, async (req, res) => {
     const actor = requireAuthContext(req).user;
 
     if (!req.file) {
@@ -192,6 +193,7 @@ export function createDocumentsRouter(options: DocumentsRouterOptions): Router {
       order: parsed.data.order,
       limit: parsed.data.limit,
       offset: parsed.data.offset,
+      scope: parsed.data.scope,
     });
 
     res.setHeader('Cache-Control', 'no-store');

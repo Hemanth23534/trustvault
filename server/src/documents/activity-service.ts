@@ -126,15 +126,6 @@ export class DocumentActivityService {
         message: 'You already have owner access to this document.',
       });
     }
-    // Debug check
-    if (actor.companyId && target.companyId && actor.companyId !== target.companyId) {
-      await this.auditDenied(actor, 'document.permission_grant_denied', documentId, 'CROSS_TENANT_SHARING_FORBIDDEN', context);
-      throw new AppError({
-        statusCode: 403,
-        code: 'CROSS_TENANT_SHARING_FORBIDDEN',
-        message: 'You cannot share documents with users outside your company workspace.',
-      });
-    }
 
     await this.activity.upsertPermission({
       documentId,

@@ -106,7 +106,7 @@ export interface AdminUserEntry {
   id: string;
   email: string;
   displayName: string | null;
-  role: 'admin' | 'owner' | 'viewer';
+  role: 'owner' | 'admin' | 'editor' | 'viewer';
   isActive: boolean;
   createdAt: Date;
   lastLoginAt: Date | null;

@@ -11,7 +11,8 @@ Snovasys hackathon.
 > with confirmed fixes and regression tests.
 
 ![stack](https://img.shields.io/badge/stack-Node%2022%20%C2%B7%20Express%205%20%C2%B7%20React%2019%20%C2%B7%20MySQL%208-0b1220)
-![tests](https://img.shields.io/badge/tests-229%20passed%20(16%20suites)-0b1220)
+![tests](https://img.shields.io/badge/tests-237%20passed%20(17%20suites)-0b1220)
+![license](https://img.shields.io/badge/license-MIT-green)
 
 🌐 **Live Deployment**: Deployable to Render or Railway with 1-click MySQL backend. See [Live Deployment Guide](#live-deployment-getting-a-public-url).
 
@@ -21,20 +22,21 @@ Snovasys hackathon.
 
 | Area | Status |
 |------|--------|
-| React 19 + TypeScript + Vite client | ✅ 9 pages (login, dashboards, detail, share, audit, history) |
-| Express 5 + TypeScript API | ✅ health, auth, documents, permissions, insights, admin |
-| Validated environment (Zod, fail-fast) | ✅ rejects placeholder secrets in production |
-| MySQL 8 connection pool (`mysql2`) | ✅ UTC, named placeholders, no stacked queries |
-| Forward-only migration runner | ✅ 5 migrations, checksums, advisory lock, dry-run |
-| Helmet, CORS allow-list, request IDs | ✅ tested across all endpoints |
+| React 19 + TypeScript + Vite client | ✅ 12 pages (login, register, workspace management, dashboards, detail, share, audit, history) |
+| Express 5 + TypeScript API | ✅ health, auth, workspace, documents, permissions, insights, admin |
+| Validated environment (Zod, fail-fast) | ✅ rejects placeholder secrets in production, supports cloud SSL |
+| MySQL 8 / TiDB Cloud connection pool (`mysql2`) | ✅ UTC, named placeholders, SSL/TLS, no stacked queries |
+| Forward-only migration runner | ✅ 7 migrations, checksums, advisory lock, dry-run |
+| Helmet, CORS allow-list, request IDs | ✅ tested across all endpoints, strict origin matching |
 | Centralised error handling | ✅ sanitized JSON envelope, zero stack/SQL leakage |
 | Private storage directory | ✅ outside web root, mode `0700`/`0600`, magic byte check |
 | Auth (bcrypt + MySQL sessions) | ✅ HttpOnly/SameSite/Secure, CSRF, dual-tier rate limiting |
-| Document permissions & sharing | ✅ owner/editor/viewer, immediate revocation, admin isolation |
+| Document permissions & sharing | ✅ owner/admin/editor/viewer, immediate revocation, admin isolation |
 | Tamper-evident audit trail & admin | ✅ SHA-256 hash chaining, DB triggers, admin dashboard |
 | Independent security review & fixes | ✅ 13 categories evaluated, 3 fixed, 1 documented residual |
-| Public self-registration | ✅ `/register` view & `POST /api/auth/register` with rate limiting & validation |
-| Multi-tenant company workspaces | ✅ Migration 0006, database isolation on docs, users & audit logs |
+| Public self-registration | ✅ Personal accounts or Company Workspaces with unique tenant IDs |
+| Multi-tenant company workspaces | ✅ Complete isolation on docs, members & audit logs (Migration 0006 & 0007) |
+| Team invitations & role management | ✅ Token-based invites (`?invite=...`), member removal, role updates |
 | Password reset & email verification | ℹ️ Planned roadmap (documented token spec; requires external SMTP) |
 
 ### Account Model & Production Readiness Status
@@ -46,8 +48,10 @@ Snovasys hackathon.
 | Server-side Sessions & CSRF | ✅ Implemented | HttpOnly, SameSite=Lax, Secure in production; per-session synchronizer CSRF tokens on mutating requests |
 | Dual-tier Rate Limiting | ✅ Implemented | Tier-1 global per-IP ceiling (spray prevention) + Tier-2 per-(IP+email) account brute-force protection |
 | Document Permissions & Revocation | ✅ Implemented | Row-level checks on every request; zero caching latency; immediate 404 on revocation; admin file isolation |
-| Public Registration & Workspaces | ✅ Implemented | `/register` page alongside login; provisions company + owner account atomically; establishes session immediately |
-| Multi-tenant Company Boundaries | ✅ Implemented | `companies` table, foreign keys on users/documents/audit_logs, cross-tenant isolation verified in backend & DB |
+| Public Registration & Workspaces | ✅ Implemented | Public self-service registration; choose Personal Workspace or create a Company Workspace; accept invitation links |
+| Multi-tenant Data Isolation | ✅ Implemented | Unique tenant IDs; server checks user company membership; uninvited cross-tenant access blocked (404) |
+| Explicit Cross-Tenant Sharing | ✅ Implemented | Explicit grants in `document_permissions` allow sharing across tenants with instant revocation |
+| Team Invitations & RBAC | ✅ Implemented | `owner` (manage workspace/members/settings), `admin` (manage members/docs), `editor` (edit own and granted docs), `viewer` (read/download only) |
 | Password Reset & Email Verification | ℹ️ Documented Spec | Token-based recovery spec documented in THREATS.md; requires external mail service (SendGrid/AWS SES) |
 
 See **[THREATS.md](THREATS.md)** for the threat model,
@@ -59,16 +63,17 @@ See **[THREATS.md](THREATS.md)** for the threat model,
 ## Verified on this machine
 
 Everything below was executed and verified locally
-(Node 22.13.0, npm 10.9.2, MySQL 8.0.46, Windows 11).
+(Node 22.13.0, npm 10.9.2, MySQL 8 / TiDB Cloud, Windows 11).
 
 | Check | Command | Result |
 |-------|---------|--------|
 | Server type check | `npm run typecheck --workspace @trustvault/server` | ✅ 0 errors |
 | Client type check | `npm run typecheck --workspace @trustvault/client` | ✅ 0 errors |
-| Server tests | `npm run test:server` | ✅ 13 files, **207 tests passed** |
+| Server tests | `npm run test:server` | ✅ 14 files, **215 tests passed** |
 | Client tests | `npm run test:client` | ✅ 3 files, **22 tests passed** |
-| Total automated test count | `npm test` | ✅ 16 files, **229 tests passed** |
-| Production build | `npm run build` | ✅ `server/dist` (tsc) + `client/dist` (Vite, 341.6 kB JS / 23.4 kB CSS) |
+| Total automated test count | `npm test` | ✅ 17 files, **237 tests passed** |
+| Production build | `npm run build` | ✅ `server/dist` (tsc) + `client/dist` (Vite, 360.5 kB JS / 24.0 kB CSS) |
+| Workspace & invites suite | `npx vitest run tests/workspace-and-invitations.test.ts` | ✅ 4 tests passed (personal accounts, upgrade to company, invitations, settings) |
 | Company registration suite | `npx vitest run tests/company-registration.test.ts` | ✅ 5 tests passed (registration, duplicate 409, escalation block, tenant isolation) |
 | Security regression suite | `npx vitest run tests/security-regression.test.ts` | ✅ 5 tests passed (spray throttling, title redaction, revocation) |
 | Liveness | `GET /api/health` | ✅ 200 + Helmet headers, `X-Request-Id`, `no-store` |
@@ -815,7 +820,7 @@ npm run migrate
 Verify status:
 ```powershell
 npm run migrate:status
-# Expected: 6 applied, 0 pending, 0 drifted, 0 missing
+# Expected: 7 applied, 0 pending, 0 drifted, 0 missing
 ```
 
 ### 5. Seed Demo Accounts (Development Only)
@@ -836,7 +841,7 @@ npm run build
 Run tests to verify deployment integrity:
 ```powershell
 npm test
-# Expected: 207 server tests + 22 client tests passing (229 total)
+# Expected: 215 server tests + 22 client tests passing (237 total)
 ```
 
 Start the API and Client:
@@ -849,6 +854,38 @@ cd client
 npx vite preview --port 5173
 ```
 Access the application at `http://localhost:5173`.
+
+---
+
+## Multi-Tenant Architecture & Workspace Management
+
+TrustVault operates as a multi-tenant platform designed for open-source self-hosting and public deployment:
+
+### 1. Self-Service Public Registration & Onboarding
+- **Personal Workspaces:** Individuals can register with their own email and password without a company name. Personal users have `company_id = NULL` and full ownership of their library. They can share documents with any registered user or upgrade to a Company Workspace at any time via `/workspace/create`.
+- **Company Workspaces:** Teams and businesses can register a company workspace directly at `/register` by specifying their company name. The creator becomes the workspace `owner` with a cryptographically generated tenant UUID.
+- **Invitation Acceptance:** Team members join an existing company workspace by following an invite link (`/register?invite=<token>`) or accepting an invitation while logged in.
+
+### 2. Multi-Tenant Data Isolation & Cross-Company Sharing
+- **Tenant Isolation:** Every company-owned document, membership, and audit entry is bound to its `company_id`. The backend enforces tenant boundaries on all document listings, uploads, downloads, updates, and deletions.
+- **Explicit Cross-Tenant Sharing:** Documents can only cross tenant boundaries through explicit, authorized grants in `document_permissions`. Uninvited users receive an immediate `404 Not Found`. Revoking an access grant instantly cuts off access with zero caching latency.
+
+### 3. Role-Based Access Control (RBAC)
+- **`owner`:** Complete workspace control, workspace settings (name, domain), member invitation and removal, role promotion/demotion, and document management.
+- **`admin`:** Workspace administration, member invites, user management, and governance logs.
+- **`editor`:** Document creation and upload, editing owned documents and shared documents granted with edit permissions.
+- **`viewer`:** Read-only access and secure streaming downloads for granted documents.
+
+### 4. Database Migration 0007
+Migration `0007_company_invitations_and_roles.sql` applies forward-only schema updates:
+- Extends the `users.role` enum to include `editor`.
+- Creates the `company_invitations` table with secure random tokens, role assignment, status tracking (`pending`, `accepted`, `revoked`, `expired`), expiration timestamps, and indexed foreign keys to `companies` and `users`.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE) - see the LICENSE file for details.
 
 ---
 

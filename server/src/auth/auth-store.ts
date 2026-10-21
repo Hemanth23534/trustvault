@@ -4,7 +4,7 @@ import {
   computeEntryHash,
   GENESIS_HASH,
 } from './audit-crypto.js';
-import type { AuthUser, Company, UserRole } from './types.js';
+import type { AuthUser, Company, CompanyInvitation, UserRole } from './types.js';
 
 export interface UserWithCredentials extends AuthUser {
   passwordHash: string;
@@ -119,8 +119,23 @@ export interface AuditVerificationResult {
 export interface AuthStore {
   createCompany(input: { id: string; name: string; domain?: string | null; createdAt: Date }): Promise<Company>;
   findCompanyById(id: string): Promise<Company | null>;
+  updateCompany(id: string, patch: { name?: string; domain?: string | null }): Promise<Company | null>;
   createUser(input: CreateUserInput): Promise<UserWithCredentials>;
   listCompanyUsers(companyId: string): Promise<AuthUser[]>;
+  updateUserRoleAndCompany(userId: string, companyId: string | null, role: UserRole): Promise<void>;
+  createInvitation(input: {
+    id: string;
+    companyId: string;
+    invitedBy: string;
+    email: string;
+    role: 'admin' | 'editor' | 'viewer';
+    token: string;
+    expiresAt: Date;
+    createdAt: Date;
+  }): Promise<CompanyInvitation>;
+  findInvitationByToken(token: string): Promise<CompanyInvitation | null>;
+  listCompanyInvitations(companyId: string): Promise<CompanyInvitation[]>;
+  updateInvitationStatus(id: string, status: 'accepted' | 'revoked' | 'expired'): Promise<void>;
   findUserByEmail(email: string): Promise<UserWithCredentials | null>;
   findUserById(id: string): Promise<UserWithCredentials | null>;
   setUserActive(userId: string, isActive: boolean): Promise<boolean>;
@@ -307,6 +322,27 @@ export class MySqlAuthStore implements AuthStore {
     };
   }
 
+  async updateCompany(id: string, patch: { name?: string; domain?: string | null }): Promise<Company | null> {
+    const fields: string[] = [];
+    const values: any[] = [];
+    if (patch.name !== undefined) {
+      fields.push('name = ?');
+      values.push(patch.name);
+    }
+    if (patch.domain !== undefined) {
+      fields.push('domain = ?');
+      values.push(patch.domain);
+    }
+    if (fields.length > 0) {
+      values.push(id);
+      await this.pool.execute(
+        `UPDATE companies SET ${fields.join(', ')} WHERE id = ?`,
+        values,
+      );
+    }
+    return this.findCompanyById(id);
+  }
+
   async createUser(input: CreateUserInput): Promise<UserWithCredentials> {
     await this.pool.execute(
       `INSERT INTO users (id, email, password_hash, display_name, company_id, role, is_active, created_at, updated_at)
@@ -356,6 +392,112 @@ export class MySqlAuthStore implements AuthStore {
       role: r.role,
       isActive: r.is_active === 1,
     }));
+  }
+
+  async updateUserRoleAndCompany(userId: string, companyId: string | null, role: UserRole): Promise<void> {
+    await this.pool.execute(
+      'UPDATE users SET company_id = ?, role = ? WHERE id = ?',
+      [companyId, role, userId],
+    );
+  }
+
+  async createInvitation(input: {
+    id: string;
+    companyId: string;
+    invitedBy: string;
+    email: string;
+    role: 'admin' | 'editor' | 'viewer';
+    token: string;
+    expiresAt: Date;
+    createdAt: Date;
+  }): Promise<CompanyInvitation> {
+    await this.pool.execute(
+      `INSERT INTO company_invitations (id, company_id, invited_by, email, role, token, status, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+      [
+        input.id,
+        input.companyId,
+        input.invitedBy,
+        input.email,
+        input.role,
+        input.token,
+        input.expiresAt,
+        input.createdAt,
+        input.createdAt,
+      ],
+    );
+    return {
+      id: input.id,
+      companyId: input.companyId,
+      invitedBy: input.invitedBy,
+      email: input.email,
+      role: input.role,
+      token: input.token,
+      status: 'pending',
+      expiresAt: input.expiresAt,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+    };
+  }
+
+  async findInvitationByToken(token: string): Promise<CompanyInvitation | null> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT i.*, c.name AS company_name, u.display_name AS invited_by_name
+         FROM company_invitations i
+         JOIN companies c ON c.id = i.company_id
+         LEFT JOIN users u ON u.id = i.invited_by
+        WHERE i.token = ? LIMIT 1`,
+      [token],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      companyId: row.company_id,
+      companyName: row.company_name,
+      invitedBy: row.invited_by,
+      invitedByName: row.invited_by_name ?? null,
+      email: row.email,
+      role: row.role,
+      token: row.token,
+      status: row.status,
+      expiresAt: toDate(row.expires_at),
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
+    };
+  }
+
+  async listCompanyInvitations(companyId: string): Promise<CompanyInvitation[]> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT i.*, c.name AS company_name, u.display_name AS invited_by_name
+         FROM company_invitations i
+         JOIN companies c ON c.id = i.company_id
+         LEFT JOIN users u ON u.id = i.invited_by
+        WHERE i.company_id = ?
+        ORDER BY i.created_at DESC`,
+      [companyId],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      companyId: row.company_id,
+      companyName: row.company_name,
+      invitedBy: row.invited_by,
+      invitedByName: row.invited_by_name ?? null,
+      email: row.email,
+      role: row.role,
+      token: row.token,
+      status: row.status,
+      expiresAt: toDate(row.expires_at),
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
+    }));
+  }
+
+  async updateInvitationStatus(id: string, status: 'accepted' | 'revoked' | 'expired'): Promise<void> {
+    await this.pool.execute(
+      'UPDATE company_invitations SET status = ? WHERE id = ?',
+      [status, id],
+    );
   }
 
   async findUserByEmail(email: string): Promise<UserWithCredentials | null> {
