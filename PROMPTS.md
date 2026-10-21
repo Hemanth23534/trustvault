@@ -316,4 +316,34 @@ changed:
 | Explicit '[Restricted]' title token | Distinguishes intentional metadata privacy protection from missing data or database errors |
 | Privilege-level immutability | Database triggers provide row-level logic, but restricting DDL and UPDATE/DELETE at the MySQL user privilege level prevents dropping triggers |
 
+---
+
+### Entry 12 — Production database connection crash in `mysql2/promise` pool connection event
+- **Date:** 2026-10-21
+- **Intent:** Fix the Render production crash where the API started, verified the database, and immediately threw `"You have tried to call .then(), .catch(), or invoked await on the result of query that is not a promise"`.
+- **Prompt (summary):** "URGENT: Fix the Render production crash in TrustVault. The Render log shows: 'You have tried to call .then(), .catch(), or invoked await on the result of query that is not a promise.' Inspect the database pool and connection modules, standardize on mysql2/promise, preserve TiDB compatibility, add a regression test for startup database initialization, and run all checks."
+- **Root Cause:** In `server/src/db/pool.ts`, `createMysqlPool` from `mysql2/promise` forwards events from the core pool using `inheritEvents`. In core `mysql2`, `connection` passed to `pool.on('connection')` is the core callback connection. Calling `connection.query("SET time_zone = '+00:00'").catch(() => {})` invoked `Query.prototype.catch()`, which is a stub getter in core `mysql2` that intentionally throws the error.
+- **Result:**
+  - Updated `server/src/db/pool.ts` to call `connection.promise().query("SET time_zone = '+00:00'").catch(() => {})` with a safe callback fallback and try/catch error wrapper.
+  - Added regression tests in `server/tests/db-and-storage.test.ts` verifying event handling on core callback connection objects.
+  - Confirmed 0 TypeScript errors and all tests green.
+- **Commit:** `50b0f8a fix(db): resolve non-promise query crash on pool connection event`
+
+---
+
+### Entry 13 — Remove email delivery completely and transition to secure in-app invitations
+- **Date:** 2026-10-21
+- **Intent:** Eliminate all external email provider dependencies (Resend, Gmail SMTP/Nodemailer) and unverified domain errors to keep operating costs at zero, while preserving the complete, secure workspace invitation workflow using in-app invitation links.
+- **Prompt (summary):** "Remove email functionality completely while preserving the secure document-sharing and invitation workflow as much as possible. Remove Resend and Gmail SMTP/Nodemailer dependencies, packages, and env vars. Replace email invitations with in-app invitations: generate unpredictable one-way hashed tokens, display the invitation link to the inviter with a 'Copy Invitation Link' button, enforce token expiry, one-time use, recipient email verification, and revocation. Update tests, docs, and the production build."
+- **Result:**
+  - **Removed email packages:** Uninstalled `nodemailer`, `resend`, `@types/nodemailer`; updated `server/package.json` and lockfile.
+  - **Removed dead code:** Deleted `server/src/email/`, `server/scripts/test-smtp.ts`, and `server/tests/email-service.test.ts`.
+  - **Environment clean-up:** Removed `SMTP_*`, `RESEND_API_KEY`, `MAIL_FROM` from `server/src/config/env.ts`; retained `frontendUrl` for formatting invitation links.
+  - **In-App invitation delivery:** Updated `AuthService.inviteMember` to return the unhashed raw token to the inviter once, while the database records only `SHA-256(rawToken)`.
+  - **UI enhancements:** Updated `WorkspaceMembersPage.tsx` with a "Create Invitation" form and a prominent "Invitation Link Created" card featuring an instant "Copy Invitation Link" button.
+  - **Recipient verification intact:** Existing `/register?invite=...` and `/login?invite=...` flows continue to enforce strict recipient email matching, 7-day expiration, and one-time acceptance.
+  - **Automated test suite:** Replaced mock email tests with comprehensive in-app invitation tests in `server/tests/workspace-and-invitations.test.ts`. 283 tests passing across client and server.
+- **Verification:** `npm run typecheck` (0 errors), `npm test` (15 server suites / 252 tests + 4 client suites / 31 tests = 283 passed), `npm run build` (clean Vite + tsc bundle).
+
+
 

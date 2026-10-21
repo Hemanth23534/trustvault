@@ -1,7 +1,6 @@
 import type { Env } from '../config/env.js';
 import type { Logger } from '../config/logger.js';
 import { AppError } from '../http/errors.js';
-import { createEmailService, type EmailService } from '../email/email-service.js';
 import type {
   AuditEventInput,
   AuditFilterParams,
@@ -71,7 +70,6 @@ export interface RequestContext {
 export interface AuthServiceOptions {
   store: AuthStore;
   env: Env;
-  emailService?: EmailService;
   clock?: () => Date;
   logger?: Logger;
 }
@@ -128,14 +126,12 @@ function invalidCredentials(): AuthError {
 export class AuthService {
   private readonly store: AuthStore;
   private readonly env: Env;
-  private readonly emailService: EmailService;
   private readonly clock: () => Date;
   private readonly logger: Logger | undefined;
 
   constructor(options: AuthServiceOptions) {
     this.store = options.store;
     this.env = options.env;
-    this.emailService = options.emailService ?? createEmailService(options.env, options.logger);
     this.clock = options.clock ?? (() => new Date());
     this.logger = options.logger;
   }
@@ -753,42 +749,6 @@ export class AuthService {
       });
     }
 
-    const company = await this.store.findCompanyById(actor.companyId);
-    const companyName = company?.name ?? 'Workspace';
-    const frontendUrl = this.env.email.frontendUrl.replace(/\/+$/, '');
-    const inviteUrl = `${frontendUrl}/register?invite=${encodeURIComponent(rawToken)}`;
-
-    // Await real email delivery from the email provider
-    const delivery = await this.emailService.sendInvitationEmail({
-      to: email,
-      companyName,
-      invitedByName: actor.displayName || actor.email,
-      role: input.role,
-      inviteUrl,
-      expiresAt,
-    });
-
-    if (!delivery.ok) {
-      // If delivery fails and this was a brand-new invitation, clean up the un-sent record
-      if (!isRetry) {
-        await this.store.deleteInvitation(invitation.id);
-      }
-      this.logger?.error(
-        {
-          companyId: actor.companyId,
-          targetEmail: email,
-          error: delivery.error,
-        },
-        'Invitation email failed to deliver',
-      );
-      throw new AuthError(
-        502,
-        'EMAIL_DELIVERY_FAILED',
-        `Failed to send invitation email: ${delivery.error || 'The email provider rejected the message'}.`,
-        { targetEmail: email },
-      );
-    }
-
     await this.audit({
       userId: actor.id,
       companyId: actor.companyId,
@@ -799,7 +759,7 @@ export class AuthService {
       ip: context?.ip,
       userAgent: context?.userAgent,
       requestId: context?.requestId,
-      metadata: { targetEmail: email, role: input.role, messageId: delivery.messageId },
+      metadata: { targetEmail: email, role: input.role },
     });
 
     // Return the unhashed raw token to the inviter so they can share the invite link

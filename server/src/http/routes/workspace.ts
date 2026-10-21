@@ -132,6 +132,9 @@ export function createWorkspaceRouter(options: WorkspaceRouterOptions): Router {
       { ip: req.ip, userAgent: req.get('user-agent'), requestId: req.id },
     );
 
+    const frontendUrl = env.frontendUrl.replace(/\/+$/, '');
+    const inviteUrl = `${frontendUrl}/register?invite=${encodeURIComponent(invitation.token)}`;
+
     const durationMs = Math.round(performance.now() - start);
     logger?.info(
       {
@@ -140,11 +143,11 @@ export function createWorkspaceRouter(options: WorkspaceRouterOptions): Router {
         invitationId: invitation.id,
         durationMs,
       },
-      'Member invitation processed and email delivered successfully',
+      'Member invitation created successfully',
     );
 
     res.setHeader('Cache-Control', 'no-store');
-    res.status(201).json({ invitation });
+    res.status(201).json({ invitation, inviteUrl });
   });
 
   /** GET /api/workspace/invitations — list pending invitations (owner/admin). */

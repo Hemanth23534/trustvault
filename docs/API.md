@@ -722,3 +722,99 @@ authorized, audited request. A deleted document returns `404`.
 | 401 | `NOT_AUTHENTICATED` | no session |
 | 404 | `DOCUMENT_NOT_FOUND` | missing, deleted, or no access |
 | 500 | `INTERNAL_ERROR` | metadata exists but the stored file is gone (logged) |
+
+---
+
+## Workspace & In-App Invitations
+
+### `GET /api/workspace`
+Returns the current authenticated user's workspace information.
+- **Authentication**: Required (`owner`, `admin`, `editor`, `viewer`).
+- **Response `200`**: `{ "company": { "id": "...", "name": "..." }, "isPersonal": false }`
+
+### `POST /api/workspace`
+Creates a new company workspace for a personal account. Creator becomes `owner`.
+- **Authentication**: Required.
+- **Headers**: `X-CSRF-Token`
+- **Body**: `{ "companyName": "Acme Corp" }`
+- **Response `201`**: `{ "user": { ... } }`
+
+### `PATCH /api/workspace`
+Updates workspace settings.
+- **Authentication**: Required (`owner` only).
+- **Headers**: `X-CSRF-Token`
+- **Body**: `{ "name": "New Name", "domain": "acme.com" }`
+- **Response `200`**: `{ "company": { ... } }`
+
+### `GET /api/workspace/members`
+Lists all members in the current workspace.
+- **Authentication**: Required.
+- **Response `200`**: `{ "members": [ { "id": "...", "email": "...", "role": "editor" } ] }`
+
+### `DELETE /api/workspace/members/:userId`
+Removes a member from the company workspace.
+- **Authentication**: Required (`owner` or `admin`).
+- **Headers**: `X-CSRF-Token`
+- **Response `204`**: No content.
+
+### `PATCH /api/workspace/members/:userId/role`
+Updates a member's role (`admin`, `editor`, `viewer`).
+- **Authentication**: Required (`owner` only).
+- **Headers**: `X-CSRF-Token`
+- **Body**: `{ "role": "editor" }`
+- **Response `204`**: No content.
+
+### `POST /api/workspace/invitations`
+Creates an in-app workspace invitation. Generates an unpredictable one-time token whose SHA-256 hash is persisted in the database. Returns the one-time token and copyable URL to the inviter.
+- **Authentication**: Required (`owner` or `admin`).
+- **Headers**: `X-CSRF-Token`
+- **Body**: `{ "email": "colleague@acme.com", "role": "editor" }`
+- **Response `201`**:
+  ```json
+  {
+    "invitation": {
+      "id": "inv-...",
+      "companyId": "cmp-...",
+      "email": "colleague@acme.com",
+      "role": "editor",
+      "status": "pending",
+      "token": "raw-secret-token",
+      "expiresAt": "..."
+    },
+    "inviteUrl": "https://frontend/register?invite=raw-secret-token"
+  }
+  ```
+
+### `GET /api/workspace/invitations`
+Lists pending invitations for the caller's workspace. Does not expose the secret token (stored as SHA-256 hash).
+- **Authentication**: Required (`owner` or `admin`).
+- **Response `200`**: `{ "invitations": [ ... ] }`
+
+### `DELETE /api/workspace/invitations/:id`
+Revokes a pending invitation immediately.
+- **Authentication**: Required (`owner` or `admin`).
+- **Headers**: `X-CSRF-Token`
+- **Response `204`**: No content.
+
+### `GET /api/workspace/invitations/verify`
+Public preview of an invitation token.
+- **Authentication**: None (public).
+- **Query**: `token=<raw-token>`
+- **Response `200`**:
+  ```json
+  {
+    "email": "colleague@acme.com",
+    "companyName": "Acme Corp",
+    "role": "editor",
+    "status": "pending",
+    "expiresAt": "..."
+  }
+  ```
+
+### `POST /api/workspace/invitations/accept`
+Accepts a pending invitation and joins the workspace. Enforces that the authenticated user's email matches the invited email.
+- **Authentication**: Required.
+- **Headers**: `X-CSRF-Token`
+- **Body**: `{ "token": "raw-secret-token" }`
+- **Response `200`**: `{ "user": { ... } }`
+

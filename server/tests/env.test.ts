@@ -15,7 +15,6 @@ const PRODUCTION = {
   SESSION_SECRET: STRONG_SECRET,
   CLIENT_ORIGINS: 'https://trustvault.app',
   DATABASE_PASSWORD: 'a-real-production-password',
-  RESEND_API_KEY: 're_production_test_key_12345',
 };
 
 function expectEnvError(raw: Record<string, string | undefined>): EnvValidationError {
@@ -202,55 +201,15 @@ describe('parseEnv', () => {
     expect(error.issues.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('parses SMTP configuration with Gmail defaults (smtp.gmail.com, 465, secure)', () => {
-    const env = parseEnv({
+  it('resolves frontendUrl from FRONTEND_URL or CLIENT_ORIGINS default', () => {
+    const defaultEnv = parseEnv(MINIMAL);
+    expect(defaultEnv.frontendUrl).toBe('http://localhost:5173');
+
+    const customEnv = parseEnv({
       ...MINIMAL,
-      SMTP_USER: 'founder@gmail.com',
-      SMTP_PASS: 'app-password-secret-1234',
+      FRONTEND_URL: 'https://vault.company.com',
     });
-
-    expect(env.email.provider).toBe('smtp');
-    expect(env.email.smtp?.host).toBe('smtp.gmail.com');
-    expect(env.email.smtp?.port).toBe(465);
-    expect(env.email.smtp?.secure).toBe(true);
-    expect(env.email.smtp?.user).toBe('founder@gmail.com');
-    expect(env.email.smtp?.pass).toBe('app-password-secret-1234');
-    expect(env.email.fromEmail).toBe('TrustVault <founder@gmail.com>');
-  });
-
-  it('accepts custom SMTP host, port 587 (STARTTLS secure false), and MAIL_FROM', () => {
-    const env = parseEnv({
-      ...MINIMAL,
-      SMTP_HOST: 'mail.customhost.com',
-      SMTP_PORT: '587',
-      SMTP_USER: 'relay@customhost.com',
-      SMTP_PASS: 'secret-relay-pass',
-      MAIL_FROM: 'Company Vault <notifications@customhost.com>',
-    });
-
-    expect(env.email.provider).toBe('smtp');
-    expect(env.email.smtp?.host).toBe('mail.customhost.com');
-    expect(env.email.smtp?.port).toBe(587);
-    expect(env.email.smtp?.secure).toBe(false);
-    expect(env.email.fromEmail).toBe('Company Vault <notifications@customhost.com>');
-  });
-
-  it('rejects SMTP_USER without SMTP_PASS', () => {
-    const error = expectEnvError({
-      ...MINIMAL,
-      SMTP_USER: 'someone@gmail.com',
-    });
-
-    expect(error.message).toContain('SMTP_PASS must be provided');
-  });
-
-  it('rejects SMTP_PASS without SMTP_USER', () => {
-    const error = expectEnvError({
-      ...MINIMAL,
-      SMTP_PASS: 'secretpass',
-    });
-
-    expect(error.message).toContain('SMTP_USER');
+    expect(customEnv.frontendUrl).toBe('https://vault.company.com');
   });
 });
 
@@ -267,22 +226,6 @@ describe('collectWarnings', () => {
 
   it('stays quiet for a fully configured production environment', () => {
     expect(collectWarnings(parseEnv(PRODUCTION))).toEqual([]);
-  });
-
-  it('warns in production if RESEND_API_KEY is not set', () => {
-    const { RESEND_API_KEY: _, ...noEmail } = PRODUCTION;
-    const warnings = collectWarnings(parseEnv(noEmail));
-    expect(warnings.some((warning) => warning.includes('RESEND_API_KEY is not set'))).toBe(true);
-  });
-
-  it('stays quiet in production when Gmail SMTP credentials are provided instead of Resend', () => {
-    const { RESEND_API_KEY: _, ...prodWithoutResend } = PRODUCTION;
-    const prodWithSmtp = {
-      ...prodWithoutResend,
-      SMTP_USER: 'prod-admin@gmail.com',
-      SMTP_PASS: 'prod-google-app-password',
-    };
-    expect(collectWarnings(parseEnv(prodWithSmtp))).toEqual([]);
   });
 });
 

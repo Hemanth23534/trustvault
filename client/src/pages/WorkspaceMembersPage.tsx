@@ -96,19 +96,21 @@ export function WorkspaceMembersPage(): JSX.Element {
       );
 
       if (!result.ok) {
-        setError(extractErrorMessage(result.data) ?? 'Failed to send invitation.');
+        setError(extractErrorMessage(result.data) ?? 'Failed to create invitation.');
         setInviting(false);
         return;
       }
 
       const invite = result.data.invitation;
-      const inviteUrl = `${window.location.origin}/register?invite=${encodeURIComponent(invite.token)}`;
+      const inviteUrl =
+        result.data.inviteUrl ||
+        `${window.location.origin}/register?invite=${encodeURIComponent(invite.token)}`;
       setLastInviteLink(inviteUrl);
-      setNotice(`Invitation email sent to ${invite.email}!`);
+      setNotice('Invitation created. Copy the invitation link to share it securely.');
       setInviteEmail('');
       void loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send invitation.');
+      setError(err instanceof Error ? err.message : 'Failed to create invitation.');
     } finally {
       setInviting(false);
     }
@@ -299,22 +301,22 @@ export function WorkspaceMembersPage(): JSX.Element {
               </select>
             </div>
             <button type="submit" className="button button-primary" disabled={inviting}>
-              {inviting ? 'Inviting...' : 'Send Invitation'}
+              {inviting ? 'Creating...' : 'Create Invitation'}
             </button>
           </form>
 
           {lastInviteLink ? (
             <div className="alert alert-info" style={{ marginTop: '1.25rem' }}>
-              <strong>Invitation Email Dispatched:</strong>
+              <strong>Invitation Link Created:</strong>
               <p className="small muted" style={{ margin: '0.25rem 0 0.5rem 0' }}>
-                An email was sent with joining instructions. You can also share this direct link as a fallback:
+                Copy the invitation link to share it securely with the invited colleague. The recipient must register or sign in with their invited email to join.
               </p>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', alignItems: 'center' }}>
                 <input
                   type="text"
                   readOnly
                   value={lastInviteLink}
-                  style={{ fontSize: '0.85rem', padding: '0.35rem 0.6rem' }}
+                  style={{ fontSize: '0.85rem', padding: '0.35rem 0.6rem', flex: 1 }}
                 />
                 <button
                   type="button"
@@ -324,7 +326,7 @@ export function WorkspaceMembersPage(): JSX.Element {
                     setNotice('Invitation link copied to clipboard!');
                   }}
                 >
-                  Copy
+                  Copy Invitation Link
                 </button>
               </div>
             </div>

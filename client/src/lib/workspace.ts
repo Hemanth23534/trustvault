@@ -96,8 +96,8 @@ export function inviteWorkspaceMember(
     role: 'admin' | 'editor' | 'viewer';
   },
   csrfToken: string,
-): Promise<ApiResult<{ invitation: CompanyInvitation }>> {
-  return request<{ invitation: CompanyInvitation }>(`${API_PREFIX}/workspace/invitations`, {
+): Promise<ApiResult<{ invitation: CompanyInvitation; inviteUrl?: string }>> {
+  return request<{ invitation: CompanyInvitation; inviteUrl?: string }>(`${API_PREFIX}/workspace/invitations`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

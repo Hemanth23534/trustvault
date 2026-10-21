@@ -7,10 +7,9 @@ import { InMemoryDocumentActivityStore } from './support/in-memory-activity-stor
 import { InMemoryDocumentStore } from './support/in-memory-document-store.js';
 import { InMemoryDocumentStorage } from '../src/documents/storage.js';
 import { testEnv, testLogger } from './support/test-env.js';
-import type { EmailService } from '../src/email/email-service.js';
 import { withDbTimeout } from '../src/db/timeout.js';
 
-function buildStack(options?: { emailService?: EmailService }) {
+function buildStack() {
   const env = testEnv();
   const authStore = new InMemoryAuthStore();
   const documentStore = new InMemoryDocumentStore();
@@ -25,7 +24,6 @@ function buildStack(options?: { emailService?: EmailService }) {
     documentStore,
     documentActivityStore: activityStore,
     documentStorage: storage,
-    emailService: options?.emailService,
   });
 
   return { app, authStore, documentStore, activityStore };
@@ -579,16 +577,8 @@ describe('Workspace and Member Management', () => {
       .expect(404);
   });
 
-  it('sends an invitation email through EmailService with all metadata and invite link', async () => {
-    const sentEmails: any[] = [];
-    const mockEmailService: EmailService = {
-      async sendInvitationEmail(data) {
-        sentEmails.push(data);
-        return { ok: true, messageId: 'msg_test_123' };
-      },
-    };
-
-    const { app } = buildStack({ emailService: mockEmailService });
+  it('creates in-app invitation with secure hashed token and returns copyable inviteUrl', async () => {
+    const { app, authStore } = buildStack();
 
     const ownerRes = await request(app)
       .post('/api/auth/register')
@@ -602,6 +592,7 @@ describe('Workspace and Member Management', () => {
 
     const cookie = ownerRes.headers['set-cookie']?.[0] ?? '';
     const csrf = ownerRes.body.session.csrfToken;
+    const companyId = ownerRes.body.user.companyId;
 
     const inviteRes = await request(app)
       .post('/api/workspace/invitations')
@@ -610,65 +601,21 @@ describe('Workspace and Member Management', () => {
       .send({ email: 'kevin@solarenergy.local', role: 'admin' })
       .expect(201);
 
-    expect(sentEmails).toHaveLength(1);
-    const sent = sentEmails[0];
-    expect(sent.to).toBe('kevin@solarenergy.local');
-    expect(sent.companyName).toBe('Solar Energy Corp');
-    expect(sent.invitedByName).toBe('Julia Founder');
-    expect(sent.role).toBe('admin');
-    expect(sent.inviteUrl).toContain('/register?invite=');
-    expect(sent.inviteUrl).toContain(inviteRes.body.invitation.token);
-    expect(sent.expiresAt).toBeInstanceOf(Date);
-  });
+    expect(inviteRes.body.invitation).toBeDefined();
+    expect(inviteRes.body.invitation.email).toBe('kevin@solarenergy.local');
+    expect(inviteRes.body.invitation.role).toBe('admin');
+    expect(inviteRes.body.invitation.token).toBeDefined();
+    expect(inviteRes.body.inviteUrl).toContain('/register?invite=');
+    expect(inviteRes.body.inviteUrl).toContain(encodeURIComponent(inviteRes.body.invitation.token));
 
-  it('returns 502 EMAIL_DELIVERY_FAILED and rolls back database invitation when EmailService fails', async () => {
-    const failingEmailService: EmailService = {
-      async sendInvitationEmail() {
-        return { ok: false, error: 'Domain unverified on Resend account' };
-      },
-    };
-
-    const { app, authStore } = buildStack({ emailService: failingEmailService });
-
-    const ownerRes = await request(app)
-      .post('/api/auth/register')
-      .send({
-        name: 'Leo Founder',
-        email: 'leo@quantum.local',
-        companyName: 'Quantum Logic',
-        password: 'Password2026!QuantumLogic',
-      })
-      .expect(201);
-
-    const cookie = ownerRes.headers['set-cookie']?.[0] ?? '';
-    const csrf = ownerRes.body.session.csrfToken;
-    const companyId = ownerRes.body.user.companyId;
-
-    const failRes = await request(app)
-      .post('/api/workspace/invitations')
-      .set('Cookie', cookie)
-      .set('X-CSRF-Token', csrf)
-      .send({ email: 'maria@quantum.local', role: 'editor' })
-      .expect(502);
-
-    expect(failRes.body.error?.code).toBe('EMAIL_DELIVERY_FAILED');
-    expect(failRes.body.error?.message).toContain('Failed to send invitation email');
-
-    // Verify rollback: no phantom invitation record left in the database
-    const pending = await authStore.findPendingInvitationByEmail(companyId, 'maria@quantum.local');
-    expect(pending).toBeNull();
+    // Verify token security: database must NOT store raw token; it stores the SHA-256 hash
+    const pending = await authStore.findPendingInvitationByEmail(companyId, 'kevin@solarenergy.local');
+    expect(pending).not.toBeNull();
+    expect(pending?.token).not.toBe(inviteRes.body.invitation.token);
   });
 
   it('supports safe invitation retries by rotating token and updating existing pending invitation', async () => {
-    const sentEmails: any[] = [];
-    const mockEmailService: EmailService = {
-      async sendInvitationEmail(data) {
-        sentEmails.push(data);
-        return { ok: true, messageId: `msg_${sentEmails.length}` };
-      },
-    };
-
-    const { app, authStore } = buildStack({ emailService: mockEmailService });
+    const { app, authStore } = buildStack();
 
     const ownerRes = await request(app)
       .post('/api/auth/register')
@@ -695,7 +642,7 @@ describe('Workspace and Member Management', () => {
     const firstToken = firstRes.body.invitation.token;
     const firstId = firstRes.body.invitation.id;
 
-    // Retry sending invitation (e.g. employee didn't see first email, changing role to editor)
+    // Retry creating invitation (e.g. inviter updating role to editor)
     const secondRes = await request(app)
       .post('/api/workspace/invitations')
       .set('Cookie', cookie)
@@ -711,12 +658,7 @@ describe('Workspace and Member Management', () => {
     // Generated fresh unguessable token
     expect(secondToken).not.toBe(firstToken);
     expect(secondRes.body.invitation.role).toBe('editor');
-
-    // Both email deliveries attempted
-    expect(sentEmails).toHaveLength(2);
-    expect(sentEmails[0].inviteUrl).toContain(firstToken);
-    expect(sentEmails[1].inviteUrl).toContain(secondToken);
-    expect(sentEmails[1].role).toBe('editor');
+    expect(secondRes.body.inviteUrl).toContain(encodeURIComponent(secondToken));
 
     // Database has only one pending invitation for this email
     const pending = await authStore.findPendingInvitationByEmail(companyId, 'oscar@hyperdrive.local');
@@ -796,47 +738,5 @@ describe('Workspace and Member Management', () => {
       code: 'ETIMEDOUT',
       message: expect.stringContaining('timed out after 50ms'),
     });
-  });
-
-  it('POST /api/workspace/invitations cleans up record and returns 502 when email provider delivery times out', async () => {
-    const hangingEmailService: EmailService = {
-      async sendInvitationEmail() {
-        return {
-          ok: false,
-          error: 'SMTP delivery timed out after 5 seconds. (Note: Render Free tier blocks outbound SMTP ports 465/587; set RESEND_API_KEY to send via HTTP API or upgrade your Render tier).',
-        };
-      },
-    };
-
-    const { app, authStore } = buildStack({ emailService: hangingEmailService });
-
-    const ownerRes = await request(app)
-      .post('/api/auth/register')
-      .send({
-        name: 'Riley Founder',
-        email: 'riley@cloudnet.local',
-        companyName: 'CloudNet Inc',
-        password: 'Password2026!CloudNet',
-      })
-      .expect(201);
-
-    const cookie = ownerRes.headers['set-cookie']?.[0] ?? '';
-    const csrf = ownerRes.body.session.csrfToken;
-    const companyId = ownerRes.body.user.companyId;
-
-    const res = await request(app)
-      .post('/api/workspace/invitations')
-      .set('Cookie', cookie)
-      .set('X-CSRF-Token', csrf)
-      .send({ email: 'sam@cloudnet.local', role: 'editor' })
-      .expect(502);
-
-    expect(res.body.error?.code).toBe('EMAIL_DELIVERY_FAILED');
-    expect(res.body.error?.message).toContain('timed out after 5 seconds');
-    expect(res.body.error?.message).toContain('Render Free tier blocks outbound SMTP');
-
-    // Confirm no orphaned database invitation
-    const pending = await authStore.findPendingInvitationByEmail(companyId, 'sam@cloudnet.local');
-    expect(pending).toBeNull();
   });
 });

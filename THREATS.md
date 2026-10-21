@@ -295,6 +295,21 @@ Following an independent application security review across all 13 checklist cat
 10. **Race Conditions: Revocation vs Downloads**: Documented boundary; subsequent requests blocked immediately.
 11. **Sensitive Metadata Leakage**: Verified Mitigated via sanitized error envelopes and admin title redaction.
 12. **Disabled-Account Access**: Verified Mitigated via live account status checks on every request and proactive session invalidation.
-13. **Insecure Deployment & Exposed Secrets**: Verified Mitigated via Zod fail-fast env validation, `.gitignore`, and production secret length enforcement.
+## 13. In-App Workspace Invitations & Zero-Trust Token Security
+
+TrustVault operates a zero-cost, domain-independent in-app invitation system. Rather than routing invitation secrets through third-party email providers or unverified SMTP servers, invitations generate high-entropy tokens copied directly by authorized inviters and redeemed securely by recipients.
+
+### Threat Model for In-App Invitations
+
+| ID | Threat Scenario | Impact | Severity | Implemented Mitigation | Verification |
+|---|---|---|---|---|---|
+| **T27** | **Database Token Compromise**: Attacker dumps MySQL `company_invitations` table and attempts to redeem active tokens | Privilege escalation into workspace | High | **One-way SHA-256 Hashing at Rest**: The raw 256-bit token is returned to the inviter once upon creation and is **never stored in the database**. The database records only `SHA-256(rawToken)`. An attacker with full database read access cannot redeem any invitation | `tests/workspace-and-invitations.test.ts` → `creates in-app invitation with secure hashed token` |
+| **T28** | **Invitation Link Interception / Snooping**: An eavesdropper or unintended recipient obtains an in-app invite link | Unauthorized workspace access | High | **Strict Recipient Email Binding**: Acceptance (`/register` or `/login` or `/api/workspace/invitations/accept`) cryptographically validates that the authenticated user's email exactly matches the invited email. Mismatched email redemption attempts are rejected with `403 INVITATION_EMAIL_MISMATCH` | `tests/workspace-and-invitations.test.ts` → `rejects cross-email acceptance attempts` |
+| **T29** | **Token Replay / Multi-Use**: Attacker attempts to reuse an accepted invitation link to add multiple accounts | Unauthorized accounts in workspace | Medium | **One-Time State Transition**: Tokens are marked `accepted` atomically upon initial redemption. Subsequent redemption attempts return `409 INVITATION_ALREADY_ACCEPTED` | `tests/workspace-and-invitations.test.ts` → `supports inviting members, accepting invitations, and role management` |
+| **T30** | **Stale / Abandoned Invitations**: Unredeemed invitations remain valid indefinitely | Lingering access window | Low-Medium | **7-Day Expiry TTL**: Every invitation enforces an explicit `expires_at` timestamp. Expired invitations return `410 INVITATION_EXPIRED` | `tests/workspace-and-invitations.test.ts` → `rejects revoked or expired invitations` |
+| **T31** | **Immediate Owner Revocation**: Owner changes mind and needs to cancel an unredeemed invitation | Premature access | Medium | **Synchronous Revocation**: Owners and workspace admins can immediately revoke invitations via `DELETE /api/workspace/invitations/:id`. Status transitions to `revoked` and redemption attempts return `410 INVITATION_REVOKED` | `tests/workspace-and-invitations.test.ts` → `rejects revoked or expired invitations` |
+| **T32** | **Cross-Tenant Invitation Hijacking**: An admin from Company A attempts to list or revoke invitations for Company B | Multi-tenant isolation breach | High | **Tenant Boundary Enforcement**: `company_id` is validated against the authenticated caller's session on every invitation query. Foreign invitation queries return `404 INVITATION_NOT_FOUND` | `tests/workspace-and-invitations.test.ts` → `enforces cross-tenant isolation on invitations and members` |
+| **T33** | **Secret Token Leakage via Logs / List APIs**: Tokens leak in web server logs or `GET /api/workspace/invitations` | Token disclosure | High | **Zero Token Emission**: `GET /api/workspace/invitations` returns only invitation metadata (email, role, status, expiry) and hashed database values. Raw tokens are never logged or returned in list APIs | Code audit of `workspace.ts` and `auth-service.ts` |
+
 
 
