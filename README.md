@@ -5,16 +5,20 @@ server-side sessions, and share links that expire — built in five days for the
 Snovasys hackathon.
 
 > **Day 5 of 5 — production-ready submission complete.** All five phases are delivered:
-> React 19 SPA, Express 5 API, MySQL 8 schema with 5 forward-only migrations,
+> React 19 SPA, Express 5 API, TiDB Cloud Serverless database with 7 forward-only migrations,
 > document-level permissions with instant revocation, tamper-evident hash-chained
 > audit logs, administrative governance, and an independent application security review
 > with confirmed fixes and regression tests.
 
-![stack](https://img.shields.io/badge/stack-Node%2022%20%C2%B7%20Express%205%20%C2%B7%20React%2019%20%C2%B7%20MySQL%208-0b1220)
-![tests](https://img.shields.io/badge/tests-237%20passed%20(17%20suites)-0b1220)
+![stack](https://img.shields.io/badge/stack-Node%2022%20%C2%B7%20Express%205%20%C2%B7%20React%2019%20%C2%B7%20TiDB%20Cloud%20%C2%B7%20Render-0b1220)
+![tests](https://img.shields.io/badge/tests-307%20passed%20(23%20suites)-0b1220)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-🌐 **Live Deployment**: Deployable to Render or Railway with 1-click MySQL backend. See [Live Deployment Guide](#live-deployment-getting-a-public-url).
+🌐 **Live Deployment**:
+- **Frontend App**: [https://trustvault-app-1i2l.onrender.com](https://trustvault-app-1i2l.onrender.com) (Render Static Site)
+- **Backend API**: `https://trustvault-api-0dl0.onrender.com` (Render Web Service `trustvault-api`)
+- **Database**: TiDB Cloud Serverless (MySQL-compatible distributed SQL with TLS/SSL)
+- **GitHub Repository**: [https://github.com/Hemanth23534/trustvault](https://github.com/Hemanth23534/trustvault)
 
 ---
 
@@ -70,12 +74,16 @@ Everything below was executed and verified locally
 | Server type check | `npm run typecheck --workspace @trustvault/server` | ✅ 0 errors |
 | Client type check | `npm run typecheck --workspace @trustvault/client` | ✅ 0 errors |
 | Server tests | `npm run test:server` | ✅ 15 files, **255 tests passed** |
-| Client tests | `npm run test:client` | ✅ 4 files, **32 tests passed** |
-| Total automated test count | `npm test` | ✅ 19 files, **287 tests passed** |
+| Client tests | `npm run test:client` | ✅ 8 files, **52 tests passed** |
+| Total automated test count | `npm test` | ✅ 23 files, **307 tests passed** |
 | Production build | `npm run build` | ✅ `server/dist` (tsc) + `client/dist` (Vite + postbuild SPA routes) |
 | Workspace & invites suite | `npx vitest run server/tests/workspace-and-invitations.test.ts` | ✅ 17 tests passed (invitations, revocation persistence, member doc revocation, RBAC) |
 | Company registration suite | `npx vitest run server/tests/company-registration.test.ts` | ✅ 5 tests passed (registration, duplicate 409, escalation block, tenant isolation) |
 | Security regression suite | `npx vitest run server/tests/security-regression.test.ts` | ✅ 5 tests passed (spray throttling, title redaction, revocation) |
+| Client routes suite | `npx vitest run client/src/lib/routes.test.ts` | ✅ 11 tests passed (RBAC matrices, /admin redirect safety, open redirect prevention) |
+| Client login & session suite | `npx vitest run client/src/pages/LoginPage.test.tsx` | ✅ 4 tests passed (owner redirect to /dashboard, admin to /admin, session check block) |
+| Client role gate suite | `npx vitest run client/src/components/layout/ProtectedRoute.test.tsx` | ✅ 3 tests passed (role-based 403, Return to Dashboard link) |
+| Client feedback suite | `npx vitest run client/src/components/ui/Feedback.test.tsx` | ✅ 2 tests passed (403 AccessDenied rendering with working dashboard link) |
 | Liveness | `GET /api/health` | ✅ 200 + Helmet headers, `X-Request-Id`, `no-store` |
 | Readiness (DB probe) | `GET /api/health/database` | ✅ 200 / 503 sanitized driver codes |
 | CORS allow/deny | `Origin: http://localhost:5173` vs untrusted | ✅ allow-list echoed vs 403 `ORIGIN_NOT_ALLOWED` |
@@ -115,13 +123,14 @@ creating the database user.
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| Client | React 19, TypeScript 5.9, Vite 7 | Fast dev loop, static hosting anywhere |
-| API | Node 22, Express 5, TypeScript | Async errors propagate natively in Express 5 |
-| Database | MySQL 8 (`mysql2`) | Sessions need row-level revocation, not just JWTs |
-| Config | Zod | One place to fail fast on bad env |
-| Logging | pino | Structured JSON, redaction, cheap |
-| Tests | Vitest + Supertest | Real HTTP assertions against the real app |
-| Storage | Private filesystem directory | Never inside `client/`, never web-served |
+| Client | React 19, TypeScript 5.9, Vite 7 | Fast dev loop, static hosting on Render Static Sites with SPA rewrites |
+| API | Node 22, Express 5, TypeScript | Async errors propagate natively in Express 5, deployed on Render Web Service |
+| Database | TiDB Cloud / MySQL 8 (`mysql2/promise`) | Serverless distributed MySQL-compatible database, TLS 1.2+ encryption, row-level session & permission revocation |
+| Hosting | Render (`render.yaml`) | Unified monorepo deployment: Render Static Site + Render Web Service |
+| Config | Zod | One place to fail fast on bad env; supports discrete variables or unified `DATABASE_URL` |
+| Logging | pino | Structured JSON, redaction, request tracing via `X-Request-Id` |
+| Tests | Vitest + Supertest | Real HTTP assertions against the real app (307 automated tests) |
+| Storage | Private filesystem / cloud directory | Never inside `client/`, never web-served, magic byte content inspection |
 
 ## Repository layout
 
@@ -159,7 +168,7 @@ trustvault/
 
 ## Quickstart (VS Code)
 
-**Prerequisites:** Node.js ≥ 22.12, npm ≥ 10, MySQL 8 running locally, and the
+**Prerequisites:** Node.js ≥ 22.12, npm ≥ 10, a TiDB Cloud Serverless cluster (or local MySQL 8 instance), and the
 repository open in VS Code (`Ctrl+~` opens the integrated terminal).
 
 ### 1. Install dependencies
@@ -187,18 +196,26 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 Paste the 64-character result into `.env` as `SESSION_SECRET=...`. The server
 refuses to start production with a placeholder secret.
 
-### 4. Create the database and a least-privilege user
+### 4. Configure the database (TiDB Cloud or Local MySQL)
 
-Follow **[database/README.md](database/README.md#1-create-the-database-and-user)**
-— it shows a password-generating one-liner so the secret never touches disk.
-Then set `DATABASE_USER` / `DATABASE_PASSWORD` in `.env`.
+- **TiDB Cloud (Recommended / Production)**: In `.env`, set:
+  ```ini
+  DATABASE_HOST=gateway01.us-east-1.prod.aws.tidbcloud.com
+  DATABASE_PORT=4000
+  DATABASE_USER=<cluster_prefix>.root
+  DATABASE_PASSWORD=<your_tidb_password>
+  DATABASE_NAME=trustvault
+  DATABASE_SSL=true
+  ```
+  *(Or provide `DATABASE_URL=mysql://<user>:<password>@gateway01...:4000/trustvault?ssl=true`)*
+- **Local MySQL**: Follow **[database/README.md](database/README.md#1-create-the-database-and-user)** to create the local `trustvault` database and user.
 
 ### 5. Apply the migrations
 
 ```powershell
 npm run migrate:status   # looks at the schema, changes nothing
 npm run migrate:dry      # prints the plan, executes nothing
-npm run migrate          # applies 0001_foundation
+npm run migrate          # applies all pending migrations
 ```
 
 Expected: `Applied 0001_foundation ...` then `Database is up to date.` on a
@@ -251,22 +268,25 @@ Copy `.env.example` → `.env`. The server loads, in order: real process env,
 | `NODE_ENV` | `development` | no | `production` enables HSTS + strict checks |
 | `PORT` | `4000` | no | API port |
 | `HOST` | `0.0.0.0` | no | Bind address |
-| `TRUST_PROXY` | `0` | no | Set to `1` behind one proxy (Render/Railway/nginx) |
-| `CLIENT_ORIGINS` | `http://localhost:5173` | no | Comma-separated exact origins; wildcards rejected |
+| `TRUST_PROXY` | `0` | no | Set to `1` behind one proxy (Render/nginx) |
+| `CLIENT_ORIGINS` | `http://localhost:5173` | no | Comma-separated exact origins; e.g. `https://trustvault-app-1i2l.onrender.com` |
 | `SESSION_SECRET` | — | **yes** | ≥ 32 chars; placeholders rejected in production |
 | `SESSION_COOKIE_NAME` | `tv_session` | no | `[A-Za-z0-9_-]{3,64}` |
 | `SESSION_TTL_HOURS` | `12` | no | 1–720 |
-| `DATABASE_HOST` | `127.0.0.1` | no | |
-| `DATABASE_PORT` | `3306` | no | |
-| `DATABASE_USER` | `trustvault` | no | |
-| `DATABASE_PASSWORD` | *(empty)* | **yes in production** | Empty only works for a local passwordless user |
-| `DATABASE_NAME` | `trustvault` | no | `[A-Za-z0-9_]` only |
+| `COOKIE_SECURE` | auto (`true` in prod) | no | Explicitly forces `Secure` cookies for cross-origin HTTPS |
+| `DATABASE_HOST` | `127.0.0.1` | no | `127.0.0.1` for local, or `<gateway>.prod.aws.tidbcloud.com` for TiDB Cloud |
+| `DATABASE_PORT` | `3306` | no | `3306` for local MySQL, `4000` for TiDB Cloud |
+| `DATABASE_USER` | `trustvault` | no | Database username (e.g. `<user>.<cluster_prefix>` on TiDB Cloud) |
+| `DATABASE_PASSWORD` | *(empty)* | **yes in production** | Password for database user |
+| `DATABASE_NAME` | `trustvault` | no | Database schema name |
+| `DATABASE_SSL` | auto | no | Set to `true` (auto-enabled when host is `tidbcloud.com` or port is 4000) |
+| `DATABASE_URL` / `TIDB_URL` | — | no | Unified connection URI alternative (e.g. `mysql://user:pass@host:4000/trustvault?ssl=true`) |
 | `DATABASE_CONNECTION_LIMIT` | `10` | no | 1–50 |
 | `STORAGE_DIR` | `./storage` | no | Resolved from `server/`; git-ignored |
 | `MAX_UPLOAD_BYTES` | `10485760` | no | 10 MiB ceiling |
 | `LOG_LEVEL` | `info` | no | `fatal…trace` or `silent` |
-| `FRONTEND_URL` | *(first client origin)* | no | Base URL for invitation links |
-| `VITE_API_BASE_URL` | `http://localhost:4000` | client `.env` | Baked in at build time |
+| `FRONTEND_URL` | *(first client origin)* | no | Base URL for invitation links (e.g. `https://trustvault-app-1i2l.onrender.com`) |
+| `VITE_API_BASE_URL` | `http://localhost:4000` | client `.env` | Baked in at build time (`https://trustvault-api-0dl0.onrender.com`) |
 
 Environment problems are reported **all at once**, at boot, with actionable
 messages — the process exits instead of running half-configured.
@@ -393,40 +413,49 @@ on any machine and in CI.
 
 ## Deployment
 
-### Client → Vercel (or any static host)
+TrustVault is configured for zero-friction monorepo deployment on **Render** paired with **TiDB Cloud**:
+
+### 1. Client → Render Static Site (`trustvault-app`)
 
 | Setting | Value |
 |---------|-------|
-| Root directory | repository root |
-| Install command | `npm install` |
-| Build command | `npm run build:client` |
-| Output directory | `client/dist` |
-| Env var | `VITE_API_BASE_URL=https://your-api-host` (rebuild after changing) |
+| Repository | `https://github.com/Hemanth23534/trustvault` |
+| Service Name | `trustvault-app` |
+| Build Command | `npm run build --workspace @trustvault/client` |
+| Publish Directory | `client/dist` |
+| Routing Rules | Rewrite `/*` → `/index.html` (handled via `render.yaml` & `client/public/_redirects`) |
+| Environment Variable | `VITE_API_BASE_URL=https://trustvault-api-0dl0.onrender.com` |
+| Live URL | `https://trustvault-app-1i2l.onrender.com` |
 
-### API → Render / Railway / Fly.io (Node host)
+### 2. API → Render Web Service (`trustvault-api`)
 
 | Setting | Value |
 |---------|-------|
-| Root directory | repository root |
-| Build command | `npm ci && npm run build:server` |
-| Start command | `npm start` |
-| Health check path | `/api/health` |
+| Repository | `https://github.com/Hemanth23534/trustvault` |
+| Service Name | `trustvault-api` |
 | Runtime | Node 22 |
+| Build Command | `npm run build --workspace @trustvault/server` |
+| Start Command | `npm start --workspace @trustvault/server` |
+| Health Check Path | `/api/health` |
+| Live URL | `https://trustvault-api-0dl0.onrender.com` |
 
-Set `NODE_ENV=production`, `TRUST_PROXY=1`, a fresh `SESSION_SECRET`, the
-managed MySQL credentials, and `CLIENT_ORIGINS=https://your-client-host`.
+Key Environment Variables on Render:
+- `NODE_ENV=production`
+- `PORT=4000`
+- `TRUST_PROXY=1`
+- `SESSION_SECRET=<random-64-char-hex-secret>`
+- `CLIENT_ORIGINS=https://trustvault-app-1i2l.onrender.com`
+- `FRONTEND_URL=https://trustvault-app-1i2l.onrender.com`
+- `COOKIE_SECURE=true`
+- `DATABASE_HOST`, `DATABASE_PORT=4000`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME=trustvault`, `DATABASE_SSL=true` (or `DATABASE_URL`)
 
-Run `npm run migrate` once as a release/pre-deploy step — never automatically on
-every boot unless you have the lock story working.
+### 3. Database → TiDB Cloud Serverless
 
-**Managed MySQL requirements:** InnoDB, `utf8mb4_0900_ai_ci`, and `GET_LOCK()`
-support. PlanetScale historically does not support `GET_LOCK`, so the migration
-lock fails there; Railway/Aiven/RDS MySQL are known-good.
+- **Connection**: Connects over standard MySQL wire protocol on port `4000` with required TLS v1.2+ encryption (`DATABASE_SSL=true`).
+- **Migrations**: Automated forward-only migrations applied via `npm run migrate` create tables, indexes, and tamper-resistant audit triggers.
+- **Connection Pool**: Powered by `mysql2/promise` with UTC time pinning, parameterized queries, and connection keep-alive.
 
-**Cross-site cookies (Day 2 note):** when the SPA and API are on different
-domains, the session cookie needs `SameSite=None; Secure`. That is a deliberate
-decision to revisit with CSRF protection in place, because `None` widens the CSRF
-surface. Local development uses same-site `Lax`.
+**Cross-site cookies:** With the frontend on `https://trustvault-app-1i2l.onrender.com` and backend on `https://trustvault-api-0dl0.onrender.com`, cookies automatically adapt to `SameSite=None; Secure; Partitioned` with synchronizer CSRF tokens protecting all state-changing endpoints.
 
 ---
 
@@ -890,84 +919,140 @@ This project is licensed under the [MIT License](LICENSE) - see the LICENSE file
 
 ---
 
-## Pushing to GitHub
+## GitHub Repository & Version Control
 
-To push this repository to GitHub so that anyone can clone, test, or deploy it:
+- **Repository**: [https://github.com/Hemanth23534/trustvault](https://github.com/Hemanth23534/trustvault)
+- **Primary Branch**: `main`
+- **Monorepo Structure**: Contains both `@trustvault/client` (React 19 SPA) and `@trustvault/server` (Express 5 API), with unified npm workspace scripts, shared database migrations, and automated test suites.
 
-1. **Verify no secrets are tracked**:
-   ```powershell
-   git status
-   # Ensure .env and server/storage/ are ignored and untracked
-   ```
+To clone and work on this repository:
 
-2. **Commit your changes**:
-   ```powershell
-   git add -A
-   git commit -m "feat: multi-tenant company registration, workspace isolation, and production UI"
-   ```
+```powershell
+git clone https://github.com/Hemanth23534/trustvault.git
+cd trustvault
+npm install
+```
 
-3. **Link to your GitHub repository**:
-   Create a new public repository on [GitHub](https://github.com/new) (e.g. `trustvault`), then link and push:
-   ```powershell
-   git remote add origin https://github.com/<YOUR_GITHUB_USERNAME>/trustvault.git
-   git branch -M main
-   git push -u origin main
-   ```
+When pushing commits to `main`, Render automatically triggers builds for both the backend Web Service (`trustvault-api`) and the frontend Static Site (`trustvault-app`).
 
 ---
 
-## Live Deployment (Getting a Public URL)
+## Live Production Deployment on Render & TiDB Cloud
 
-TrustVault can be deployed to any Node.js + MySQL cloud host (e.g., Render, Railway, AWS ECS, Fly.io):
+TrustVault is deployed in production using **Render** for application compute and **TiDB Cloud** for managed serverless distributed SQL:
 
-### Option A: Railway / Render (Easiest)
-1. **Provision MySQL**:
-   - Create a MySQL 8 database service on [Railway](https://railway.app) or [Render](https://render.com).
-   - Copy the MySQL connection parameters (`MYSQLHOST`, `MYSQLPORT`, `MYSQLUSER`, `MYSQLPASSWORD`, `MYSQLDATABASE`).
+| Component | Service | URL / Endpoint |
+|-----------|---------|----------------|
+| **Frontend Client** | Render Static Site (`trustvault-app`) | [https://trustvault-app-1i2l.onrender.com](https://trustvault-app-1i2l.onrender.com) |
+| **Backend API** | Render Web Service (`trustvault-api`) | `https://trustvault-api-0dl0.onrender.com` |
+| **Database** | TiDB Cloud Serverless (MySQL 8 compatible) | `gateway01.us-east-1.prod.aws.tidbcloud.com:4000` |
+| **Source Code** | GitHub Monorepo | [https://github.com/Hemanth23534/trustvault](https://github.com/Hemanth23534/trustvault) |
 
-2. **Deploy API (`server`)**:
-   - Connect your GitHub repository as a Web Service.
-   - Set Root Directory: `server` (or build from root using workspace scripts).
-   - Set Build Command: `npm install && npm run build`
-   - Set Start Command: `npm run migrate && npm start`
-   - Set Environment Variables:
-     - `NODE_ENV=production`
-     - `PORT=4000`
-     - `SESSION_SECRET=<random 64-character hex string>`
-     - `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`
-     - `CLIENT_ORIGIN=https://<your-frontend-domain>`
-     - `FRONTEND_URL=https://<your-frontend-domain>`
+---
 
-3. **Deploy Web Client (`client`)**:
-   - Create a Static Site service connected to your GitHub repo.
-   - Set Root Directory: `client`
-   - Set Build Command: `npm install && npm run build`
-   - Set Publish Directory: `dist`
-   - Set Environment Variable:
-     - `VITE_API_BASE_URL=https://<your-api-domain>`
+### 1. Database Architecture — TiDB Cloud Serverless
 
-4. **Live Access**:
-   - Open your frontend URL: `https://<your-frontend-domain>`.
-   - Anyone can click **Register company workspace** to register their company, or log in with their credentials!
+TrustVault uses **TiDB Cloud**, an elastic, serverless, MySQL-compatible distributed SQL database:
+- **Port & Protocol**: Connects over standard MySQL wire protocol on port `4000`.
+- **Security & TLS**: Requires encrypted connections with TLS v1.2+ (`DATABASE_SSL=true` or SSL parameters in `DATABASE_URL`).
+- **Connection Pooling**: Configured via `mysql2/promise` with UTC timezone pinning (`timezone: 'Z'`), named placeholders, no stacked queries (`multipleStatements: false`), and keep-alive probes to maintain active pooled connections.
+- **Forward-Only Migrations**: All 7 database migrations (`0001_foundation` through `0007_company_invitations_and_roles`) run seamlessly against TiDB Cloud:
+  ```powershell
+  npm run migrate
+  ```
+  Schema integrity is verified using SHA-256 checksums and connection advisory locks.
 
-### Option B: GitHub Pages (Frontend Client Only)
+#### Connecting to TiDB Cloud
+Set the following environment variables in your server environment:
+```ini
+DATABASE_HOST=gateway01.us-east-1.prod.aws.tidbcloud.com
+DATABASE_PORT=4000
+DATABASE_USER=<your_cluster_prefix>.root
+DATABASE_PASSWORD=<your_tidb_password>
+DATABASE_NAME=trustvault
+DATABASE_SSL=true
+```
+Alternatively, provide a single unified connection string:
+```ini
+DATABASE_URL=mysql://<user>:<password>@gateway01.us-east-1.prod.aws.tidbcloud.com:4000/trustvault?ssl=true
+```
 
-A GitHub Actions workflow is provided at `.github/workflows/deploy-pages.yml` to build and deploy the React frontend to GitHub Pages.
+---
 
-#### How to Enable GitHub Pages:
-1. In your GitHub repository, navigate to **Settings** → **Pages**.
-2. Under **Build and deployment** → **Source**, select **GitHub Actions**.
-3. (Optional) Go to **Settings** → **Secrets and variables** → **Actions** → **Variables**, click **New repository variable**, and add:
-   - Name: `VITE_API_BASE_URL`
-   - Value: `https://<your-deployed-api-url>` (e.g. your Render or Railway backend).
-4. Push a commit to `main` (or trigger the workflow manually under the **Actions** tab).
-5. The frontend will be published at `https://<YOUR_GITHUB_USERNAME>.github.io/trustvault/`.
+### 2. Backend API Service on Render (`trustvault-api`)
 
-> [!WARNING]
-> **Limitations of GitHub Pages**:
-> - GitHub Pages hosts **only static assets** (HTML, CSS, JS).
-> - It **cannot** host the Node.js Express backend, the MySQL 8 database, HttpOnly session cookies, or private document filesystem storage.
-> - Unless a real TrustVault API backend is deployed and configured via `VITE_API_BASE_URL`, authentication and document features on the GitHub Pages site will display connection errors when attempting to reach the server.
+The backend is deployed as a Render Web Service running Node.js 22:
+- **Service Name**: `trustvault-api`
+- **Root Directory**: repository root (`/`)
+- **Build Command**: `npm run build --workspace @trustvault/server`
+- **Start Command**: `npm start --workspace @trustvault/server`
+- **Health Check Path**: `/api/health`
+- **Live Endpoint**: `https://trustvault-api-0dl0.onrender.com`
+
+#### Required Backend Environment Variables on Render:
+| Variable | Value / Description |
+|----------|---------------------|
+| `NODE_ENV` | `production` |
+| `PORT` | `4000` |
+| `TRUST_PROXY` | `1` (required for correct client IP detection behind Render's load balancer) |
+| `SESSION_SECRET` | 64-character cryptographic random hex string |
+| `CLIENT_ORIGINS` | `https://trustvault-app-1i2l.onrender.com` |
+| `FRONTEND_URL` | `https://trustvault-app-1i2l.onrender.com` |
+| `COOKIE_SECURE` | `true` |
+| `DATABASE_HOST` | TiDB Cloud gateway host |
+| `DATABASE_PORT` | `4000` |
+| `DATABASE_USER` | TiDB Cloud user |
+| `DATABASE_PASSWORD` | TiDB Cloud password |
+| `DATABASE_NAME` | `trustvault` |
+| `DATABASE_SSL` | `true` |
+
+---
+
+### 3. Frontend Static Site on Render (`trustvault-app`)
+
+The frontend is deployed as a Render Static Site:
+- **Service Name**: `trustvault-app`
+- **Root Directory**: `client` (or root with workspace build)
+- **Build Command**: `npm run build --workspace @trustvault/client`
+- **Publish Directory**: `client/dist`
+- **Live URL**: `https://trustvault-app-1i2l.onrender.com`
+
+#### Build Process & SPA Routing:
+1. `tsc --noEmit`: Strict TypeScript compilation check.
+2. `vite build`: Production minification and asset bundling.
+3. `node scripts/postbuild.js`: Generates static entrypoints for all 11 client-side routes (`/dashboard`, `/admin`, `/workspace/members`, `/workspace/settings`, `/workspace/create`, `/documents`, `/history`, `/register`, `/login`, `/accept-invite`), along with `404.html`, `200.html`, and `_redirects` (`/* /index.html 200`).
+4. **Infrastructure Rewrite Rule**: Configured in `render.yaml`:
+   ```yaml
+   routes:
+     - type: rewrite
+       source: /*
+       destination: /index.html
+   ```
+
+#### Required Frontend Environment Variable on Render:
+| Variable | Value |
+|----------|-------|
+| `VITE_API_BASE_URL` | `https://trustvault-api-0dl0.onrender.com` |
+
+---
+
+### 4. Cross-Origin Sessions & CSRF Protection
+
+When the frontend (`https://trustvault-app-1i2l.onrender.com`) and API (`https://trustvault-api-0dl0.onrender.com`) communicate across origins on Render:
+- **Session Cookie**: Issued with `HttpOnly; SameSite=None; Secure; Partitioned` so modern browsers allow authenticated credentials across distinct Render subdomains.
+- **CSRF Defense**: Every state-changing request requires a per-session cryptographic synchronizer token passed in the `X-CSRF-Token` header, validated in constant time alongside strict Origin allow-list matching.
+- **Zero Token in LocalStorage**: The browser never writes session tokens to `localStorage` or `sessionStorage`, protecting against XSS credential harvesting.
+
+---
+
+### 5. Role-Based Navigation & Safe Redirection
+
+TrustVault enforces strict role boundaries:
+- **Workspace Owner (`owner`)**: Manages the company workspace, invites and removes team members, assigns roles, and owns documents. Non-admins landing on or bouncing from `/admin` are safely redirected to `/dashboard`.
+- **Platform Administrator (`admin`)**: Governs tamper-evident audit logs and checkpoints. Platform administrators have zero automatic document access (Administrator Separation Invariant).
+- **Editor (`editor`)**: Uploads new documents and edits authorized document metadata.
+- **Viewer (`viewer`)**: Read and download access for explicitly granted documents.
+- **403 Access Denied Screen**: When a non-admin directly accesses `/admin`, the application retains the backend 403 status code and displays an actionable page with a working **Return to Dashboard** button.
 
 ---
 
@@ -994,6 +1079,19 @@ A GitHub Actions workflow is provided at `.github/workflows/deploy-pages.yml` to
   3. **Authoritative Server Sync**: Action handlers (`handleRevokeInvite`, `handleRemoveMember`, `handleChangeRole`) verify `res.ok`, extract server error envelopes upon failure, and call `await loadData()` upon success to synchronize with MySQL/TiDB.
   4. **Document Permission Cleanup**: `removeCompanyMember` clears `company_id = NULL` and executes `DELETE FROM document_permissions` for that user on that company's documents, revoking active sessions.
   5. **Idempotent Seeding**: `seed.ts` preserves existing users' company associations when seeding runs.
+
+### 3. Role-Based Navigation & Safe Initial Landing (Bug 4 Fix)
+- **Problem**: After signing in with valid credentials, Workspace Owners were redirected to `/admin` and met with `403 Access restricted`.
+- **Root Cause**:
+  1. `RequireAuth` passed `location.pathname` via `state: { from: '/admin' }` when unauthenticated users or expired sessions touched `/admin`.
+  2. `LoginPage.tsx` blindly redirected newly authenticated users to `location.state.from` without checking whether `user.role` was authorized for that path.
+  3. `<Route path="dashboard" />` was not explicitly mapped in `App.tsx` (only root index `/` existed).
+- **Solution**:
+  1. **Route Permission Validator (`client/src/lib/routes.ts`)**: Implemented `isPathAuthorized(path, user)` and `getPostAuthRedirect(requestedPath, user)`. Non-admin users (such as Workspace Owners) with `from: '/admin'` are safely redirected to `/dashboard`.
+  2. **Actionable 403 Page (`client/src/components/ui/Feedback.tsx`)**: Direct intentional visits to `/admin` by non-admins retain the backend 403 status and display an `AccessDenied` component with a prominent **Return to Dashboard** button.
+  3. **Explicit `/dashboard` Route & Postbuild Fallback**: Mounted `<Route path="dashboard" element={<DashboardPage />} />` in `App.tsx` and pre-rendered `dist/dashboard/index.html` via `client/scripts/postbuild.js`.
+  4. **Session Check Screen**: Handled `status === 'checking'` in `LoginPage.tsx` and `RegisterPage.tsx` to display a clean loading block, eliminating race conditions during session restoration.
+
 
 
 
