@@ -8,6 +8,7 @@ import { InMemoryDocumentStore } from './support/in-memory-document-store.js';
 import { InMemoryDocumentStorage } from '../src/documents/storage.js';
 import { testEnv, testLogger } from './support/test-env.js';
 import type { EmailService } from '../src/email/email-service.js';
+import { withDbTimeout } from '../src/db/timeout.js';
 
 function buildStack(options?: { emailService?: EmailService }) {
   const env = testEnv();
@@ -722,5 +723,120 @@ describe('Workspace and Member Management', () => {
     expect(pending).not.toBeNull();
     expect(pending?.id).toBe(firstId);
     expect(pending?.role).toBe('editor');
+  });
+
+  it('GET /api/workspace/invitations lists invitations for owner and rejects unauthorized roles', async () => {
+    const { app } = buildStack();
+
+    // 1. Owner registers
+    const ownerRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Pamela Owner',
+        email: 'pamela@nexuscorp.local',
+        companyName: 'Nexus Corp',
+        password: 'Password2026!NexusCorp',
+      })
+      .expect(201);
+
+    const ownerCookie = ownerRes.headers['set-cookie']?.[0] ?? '';
+    const ownerCsrf = ownerRes.body.session.csrfToken;
+
+    // 2. Empty list initially
+    const emptyListRes = await request(app)
+      .get('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .expect(200);
+
+    expect(emptyListRes.body.invitations).toEqual([]);
+
+    // 3. Create invitation
+    const inviteRes = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .set('X-CSRF-Token', ownerCsrf)
+      .send({ email: 'quincy@nexuscorp.local', role: 'viewer' })
+      .expect(201);
+
+    // 4. Owner lists invitations — pending invitation is returned
+    const listRes = await request(app)
+      .get('/api/workspace/invitations')
+      .set('Cookie', ownerCookie)
+      .expect(200);
+
+    expect(listRes.body.invitations).toHaveLength(1);
+    expect(listRes.body.invitations[0].email).toBe('quincy@nexuscorp.local');
+    expect(listRes.body.invitations[0].role).toBe('viewer');
+    expect(listRes.body.invitations[0].status).toBe('pending');
+
+    // 5. Quincy registers with the invite
+    const quincyRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Quincy Viewer',
+        email: 'quincy@nexuscorp.local',
+        password: 'Password2026!QuincyViewer',
+        inviteToken: inviteRes.body.invitation.token,
+      })
+      .expect(201);
+
+    const quincyCookie = quincyRes.headers['set-cookie']?.[0] ?? '';
+
+    // 6. Quincy (viewer) attempts to list invitations -> 403 Forbidden
+    await request(app)
+      .get('/api/workspace/invitations')
+      .set('Cookie', quincyCookie)
+      .expect(403);
+  });
+
+  it('withDbTimeout rejects with ETIMEDOUT when database query exceeds timeout threshold', async () => {
+    const hangingQuery = new Promise((resolve) => setTimeout(resolve, 200));
+
+    await expect(withDbTimeout(hangingQuery, 50, 'slowQuery')).rejects.toMatchObject({
+      code: 'ETIMEDOUT',
+      message: expect.stringContaining('timed out after 50ms'),
+    });
+  });
+
+  it('POST /api/workspace/invitations cleans up record and returns 502 when email provider delivery times out', async () => {
+    const hangingEmailService: EmailService = {
+      async sendInvitationEmail() {
+        return {
+          ok: false,
+          error: 'SMTP delivery timed out after 5 seconds. (Note: Render Free tier blocks outbound SMTP ports 465/587; set RESEND_API_KEY to send via HTTP API or upgrade your Render tier).',
+        };
+      },
+    };
+
+    const { app, authStore } = buildStack({ emailService: hangingEmailService });
+
+    const ownerRes = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Riley Founder',
+        email: 'riley@cloudnet.local',
+        companyName: 'CloudNet Inc',
+        password: 'Password2026!CloudNet',
+      })
+      .expect(201);
+
+    const cookie = ownerRes.headers['set-cookie']?.[0] ?? '';
+    const csrf = ownerRes.body.session.csrfToken;
+    const companyId = ownerRes.body.user.companyId;
+
+    const res = await request(app)
+      .post('/api/workspace/invitations')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrf)
+      .send({ email: 'sam@cloudnet.local', role: 'editor' })
+      .expect(502);
+
+    expect(res.body.error?.code).toBe('EMAIL_DELIVERY_FAILED');
+    expect(res.body.error?.message).toContain('timed out after 5 seconds');
+    expect(res.body.error?.message).toContain('Render Free tier blocks outbound SMTP');
+
+    // Confirm no orphaned database invitation
+    const pending = await authStore.findPendingInvitationByEmail(companyId, 'sam@cloudnet.local');
+    expect(pending).toBeNull();
   });
 });

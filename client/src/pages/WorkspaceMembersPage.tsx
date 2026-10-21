@@ -38,19 +38,31 @@ export function WorkspaceMembersPage(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const [membersRes, invitesRes] = await Promise.all([
+      const [membersResult, invitesResult] = await Promise.allSettled([
         fetchWorkspaceMembers(),
         canManage ? fetchWorkspaceInvitations() : Promise.resolve({ ok: true as const, status: 200, data: { invitations: [] } }),
       ]);
 
-      if (!membersRes.ok) {
-        setError(extractErrorMessage(membersRes.data) ?? 'Failed to load members.');
-        return;
+      if (membersResult.status === 'fulfilled') {
+        const membersRes = membersResult.value;
+        if (membersRes.ok) {
+          setMembers(membersRes.data.members);
+        } else {
+          setError(extractErrorMessage(membersRes.data) ?? 'Failed to load members.');
+        }
+      } else {
+        setError(membersResult.reason instanceof Error ? membersResult.reason.message : 'Could not load workspace members.');
       }
 
-      setMembers(membersRes.data.members);
-      if (invitesRes.ok) {
-        setInvitations(invitesRes.data.invitations);
+      if (invitesResult.status === 'fulfilled') {
+        const invitesRes = invitesResult.value;
+        if (invitesRes.ok) {
+          setInvitations(invitesRes.data.invitations);
+        } else if (membersResult.status === 'fulfilled' && membersResult.value.ok) {
+          setError(extractErrorMessage(invitesRes.data) ?? 'Failed to load invitations.');
+        }
+      } else if (membersResult.status === 'fulfilled' && membersResult.value.ok) {
+        setError(invitesResult.reason instanceof Error ? invitesResult.reason.message : 'Failed to load invitations.');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load workspace members.');

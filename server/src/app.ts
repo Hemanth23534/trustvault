@@ -228,7 +228,7 @@ export function createApp(options: CreateAppOptions): Express {
 
   app.use(
     `${API_PREFIX}/workspace`,
-    createWorkspaceRouter({ env, service: authService }),
+    createWorkspaceRouter({ env, service: authService, logger }),
   );
 
   // Insights and sharing must be mounted before the CRUD router so /stats is

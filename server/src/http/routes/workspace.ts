@@ -3,11 +3,13 @@ import { z } from 'zod';
 import type { AuthService } from '../../auth/auth-service.js';
 import { requireAuth, requireAuthContext } from '../../auth/middleware.js';
 import type { Env } from '../../config/env.js';
+import type { Logger } from '../../config/logger.js';
 import { USER_ROLES } from '../../auth/types.js';
 
 export interface WorkspaceRouterOptions {
   env: Env;
   service: AuthService;
+  logger?: Logger;
 }
 
 const createWorkspaceSchema = z.object({
@@ -33,7 +35,7 @@ const updateRoleSchema = z.object({
 });
 
 export function createWorkspaceRouter(options: WorkspaceRouterOptions): Router {
-  const { env, service } = options;
+  const { env, service, logger } = options;
   const guard = requireAuth({ service, env });
   const router = Router();
 
@@ -88,7 +90,20 @@ export function createWorkspaceRouter(options: WorkspaceRouterOptions): Router {
   /** GET /api/workspace/members — list all members of the current workspace. */
   router.get('/members', guard, async (req, res) => {
     const actor = requireAuthContext(req).user;
+    const start = performance.now();
     const members = await service.listWorkspaceMembers(actor);
+    const durationMs = Math.round(performance.now() - start);
+
+    logger?.info(
+      {
+        requestId: req.id,
+        companyId: actor.companyId,
+        count: members.length,
+        durationMs,
+      },
+      'Workspace members retrieved successfully',
+    );
+
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).json({ members });
   });
@@ -99,10 +114,33 @@ export function createWorkspaceRouter(options: WorkspaceRouterOptions): Router {
     const parsed = inviteMemberSchema.safeParse(req.body);
     if (!parsed.success) throw parsed.error;
 
+    const start = performance.now();
+    logger?.info(
+      {
+        requestId: req.id,
+        companyId: actor.companyId,
+        actorId: actor.id,
+        role: parsed.data.role,
+        targetEmail: parsed.data.email,
+      },
+      'Processing member invitation',
+    );
+
     const invitation = await service.inviteMember(
       actor,
       parsed.data,
       { ip: req.ip, userAgent: req.get('user-agent'), requestId: req.id },
+    );
+
+    const durationMs = Math.round(performance.now() - start);
+    logger?.info(
+      {
+        requestId: req.id,
+        companyId: actor.companyId,
+        invitationId: invitation.id,
+        durationMs,
+      },
+      'Member invitation processed and email delivered successfully',
     );
 
     res.setHeader('Cache-Control', 'no-store');
@@ -112,7 +150,25 @@ export function createWorkspaceRouter(options: WorkspaceRouterOptions): Router {
   /** GET /api/workspace/invitations — list pending invitations (owner/admin). */
   router.get('/invitations', guard, async (req, res) => {
     const actor = requireAuthContext(req).user;
+    const start = performance.now();
+    logger?.debug(
+      { requestId: req.id, companyId: actor.companyId, userId: actor.id },
+      'Fetching workspace invitations',
+    );
+
     const invitations = await service.listWorkspaceInvitations(actor);
+    const durationMs = Math.round(performance.now() - start);
+
+    logger?.info(
+      {
+        requestId: req.id,
+        companyId: actor.companyId,
+        count: invitations.length,
+        durationMs,
+      },
+      'Workspace invitations retrieved successfully',
+    );
+
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).json({ invitations });
   });

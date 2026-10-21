@@ -45,7 +45,7 @@ export function createPool(env: Env): Pool {
     maxIdle: env.database.connectionLimit,
     idleTimeout: 60_000,
     queueLimit: 0,
-    connectTimeout: 10_000,
+    connectTimeout: 5_000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 0,
     timezone: 'Z',
@@ -74,7 +74,7 @@ export function createPool(env: Env): Pool {
   // future, which invalidated freshly created sessions. One SET per connection
   // keeps SQL time and driver time in the same frame.
   pool.on('connection', (connection) => {
-    connection.query("SET time_zone = '+00:00'");
+    void connection.query("SET time_zone = '+00:00'").catch(() => {});
   });
 
   return pool;

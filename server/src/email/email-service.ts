@@ -56,6 +56,9 @@ export class SmtpEmailService implements EmailService {
           minVersion: 'TLSv1.2',
           rejectUnauthorized: true,
         },
+        connectionTimeout: 4_000,
+        greetingTimeout: 4_000,
+        socketTimeout: 5_000,
       });
     }
   }
@@ -75,14 +78,28 @@ export class SmtpEmailService implements EmailService {
   async sendInvitationEmail(data: InvitationEmailData): Promise<EmailDeliveryResult> {
     const { subject, html, text } = renderInvitationEmail(data);
 
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new Error(
+            'SMTP delivery timed out after 5 seconds. (Note: Render Free tier blocks outbound SMTP ports 465/587; set RESEND_API_KEY to send via HTTP API or upgrade your Render tier).',
+          ),
+        );
+      }, 5_000);
+      timer.unref?.();
+    });
+
     try {
-      const info = await this.transporter.sendMail({
+      const sendPromise = this.transporter.sendMail({
         from: this.fromEmail,
         to: data.to,
         subject,
         html,
         text,
       });
+
+      const info = await Promise.race([sendPromise, timeoutPromise]);
 
       this.logger?.info(
         {
@@ -112,6 +129,8 @@ export class SmtpEmailService implements EmailService {
         ok: false,
         error: message,
       };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -155,14 +174,24 @@ export class ResendEmailService implements EmailService {
   async sendInvitationEmail(data: InvitationEmailData): Promise<EmailDeliveryResult> {
     const { subject, html, text } = renderInvitationEmail(data);
 
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error('Resend email delivery timed out after 5 seconds.'));
+      }, 5_000);
+      timer.unref?.();
+    });
+
     try {
-      const response = await this.resend.emails.send({
+      const sendPromise = this.resend.emails.send({
         from: this.fromEmail,
         to: data.to,
         subject,
         html,
         text,
       });
+
+      const response = await Promise.race([sendPromise, timeoutPromise]);
 
       if (response.error) {
         this.logger?.error(
@@ -211,6 +240,8 @@ export class ResendEmailService implements EmailService {
         ok: false,
         error: message,
       };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 }

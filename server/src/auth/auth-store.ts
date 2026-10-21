@@ -1,4 +1,5 @@
 import type { Pool, RowDataPacket } from 'mysql2/promise';
+import { withDbTimeout } from '../db/timeout.js';
 import {
   computeCheckpointHash,
   computeEntryHash,
@@ -381,14 +382,18 @@ export class MySqlAuthStore implements AuthStore {
   }
 
   async listCompanyUsers(companyId: string): Promise<AuthUser[]> {
-    const [rows] = await this.pool.execute<UserRow[]>(
-      `SELECT u.id, u.email, u.display_name, u.company_id, c.name AS company_name, u.role, u.is_active,
-              u.password_hash, u.failed_login_count, u.locked_until, u.password_changed_at
-         FROM users u
-         LEFT JOIN companies c ON c.id = u.company_id
-        WHERE u.company_id = ?
-        ORDER BY u.created_at ASC`,
-      [companyId],
+    const [rows] = await withDbTimeout(
+      this.pool.execute<UserRow[]>(
+        `SELECT u.id, u.email, u.display_name, u.company_id, c.name AS company_name, u.role, u.is_active,
+                u.password_hash, u.failed_login_count, u.locked_until, u.password_changed_at
+           FROM users u
+           LEFT JOIN companies c ON c.id = u.company_id
+          WHERE u.company_id = ?
+          ORDER BY u.created_at ASC`,
+        [companyId],
+      ),
+      5_000,
+      'listCompanyUsers',
     );
     return rows.map((r) => ({
       id: r.id,
@@ -418,20 +423,24 @@ export class MySqlAuthStore implements AuthStore {
     expiresAt: Date;
     createdAt: Date;
   }): Promise<CompanyInvitation> {
-    await this.pool.execute(
-      `INSERT INTO company_invitations (id, company_id, invited_by, email, role, token, status, expires_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-      [
-        input.id,
-        input.companyId,
-        input.invitedBy,
-        input.email,
-        input.role,
-        input.token,
-        input.expiresAt,
-        input.createdAt,
-        input.createdAt,
-      ],
+    await withDbTimeout(
+      this.pool.execute(
+        `INSERT INTO company_invitations (id, company_id, invited_by, email, role, token, status, expires_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+        [
+          input.id,
+          input.companyId,
+          input.invitedBy,
+          input.email,
+          input.role,
+          input.token,
+          input.expiresAt,
+          input.createdAt,
+          input.createdAt,
+        ],
+      ),
+      5_000,
+      'createInvitation',
     );
     return {
       id: input.id,
@@ -448,20 +457,26 @@ export class MySqlAuthStore implements AuthStore {
   }
 
   async findInvitationByToken(token: string): Promise<CompanyInvitation | null> {
-    const [rows] = await this.pool.execute<RowDataPacket[]>(
-      `SELECT i.*, c.name AS company_name, u.display_name AS invited_by_name
-         FROM company_invitations i
-         JOIN companies c ON c.id = i.company_id
-         LEFT JOIN users u ON u.id = i.invited_by
-        WHERE i.token = ? LIMIT 1`,
-      [token],
+    const [rows] = await withDbTimeout(
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT i.id, i.company_id, i.invited_by, i.email, i.role, i.token, i.status,
+                i.expires_at, i.created_at, i.updated_at,
+                c.name AS company_name, u.display_name AS invited_by_name
+           FROM company_invitations i
+           LEFT JOIN companies c ON c.id = i.company_id
+           LEFT JOIN users u ON u.id = i.invited_by
+          WHERE i.token = ? LIMIT 1`,
+        [token],
+      ),
+      5_000,
+      'findInvitationByToken',
     );
     const row = rows[0];
     if (!row) return null;
     return {
       id: row.id,
       companyId: row.company_id,
-      companyName: row.company_name,
+      companyName: row.company_name ?? 'Workspace',
       invitedBy: row.invited_by,
       invitedByName: row.invited_by_name ?? null,
       email: row.email,
@@ -475,20 +490,26 @@ export class MySqlAuthStore implements AuthStore {
   }
 
   async findInvitationById(id: string): Promise<CompanyInvitation | null> {
-    const [rows] = await this.pool.execute<RowDataPacket[]>(
-      `SELECT i.*, c.name AS company_name, u.display_name AS invited_by_name
-         FROM company_invitations i
-         JOIN companies c ON c.id = i.company_id
-         LEFT JOIN users u ON u.id = i.invited_by
-        WHERE i.id = ? LIMIT 1`,
-      [id],
+    const [rows] = await withDbTimeout(
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT i.id, i.company_id, i.invited_by, i.email, i.role, i.token, i.status,
+                i.expires_at, i.created_at, i.updated_at,
+                c.name AS company_name, u.display_name AS invited_by_name
+           FROM company_invitations i
+           LEFT JOIN companies c ON c.id = i.company_id
+           LEFT JOIN users u ON u.id = i.invited_by
+          WHERE i.id = ? LIMIT 1`,
+        [id],
+      ),
+      5_000,
+      'findInvitationById',
     );
     const row = rows[0];
     if (!row) return null;
     return {
       id: row.id,
       companyId: row.company_id,
-      companyName: row.company_name,
+      companyName: row.company_name ?? 'Workspace',
       invitedBy: row.invited_by,
       invitedByName: row.invited_by_name ?? null,
       email: row.email,
@@ -502,19 +523,25 @@ export class MySqlAuthStore implements AuthStore {
   }
 
   async listCompanyInvitations(companyId: string): Promise<CompanyInvitation[]> {
-    const [rows] = await this.pool.execute<RowDataPacket[]>(
-      `SELECT i.*, c.name AS company_name, u.display_name AS invited_by_name
-         FROM company_invitations i
-         JOIN companies c ON c.id = i.company_id
-         LEFT JOIN users u ON u.id = i.invited_by
-        WHERE i.company_id = ?
-        ORDER BY i.created_at DESC`,
-      [companyId],
+    const [rows] = await withDbTimeout(
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT i.id, i.company_id, i.invited_by, i.email, i.role, i.token, i.status,
+                i.expires_at, i.created_at, i.updated_at,
+                c.name AS company_name, u.display_name AS invited_by_name
+           FROM company_invitations i
+           LEFT JOIN companies c ON c.id = i.company_id
+           LEFT JOIN users u ON u.id = i.invited_by
+          WHERE i.company_id = ?
+          ORDER BY i.created_at DESC`,
+        [companyId],
+      ),
+      5_000,
+      'listCompanyInvitations',
     );
     return rows.map((row) => ({
       id: row.id,
       companyId: row.company_id,
-      companyName: row.company_name,
+      companyName: row.company_name ?? 'Workspace',
       invitedBy: row.invited_by,
       invitedByName: row.invited_by_name ?? null,
       email: row.email,
@@ -528,9 +555,13 @@ export class MySqlAuthStore implements AuthStore {
   }
 
   async updateInvitationStatus(id: string, status: 'accepted' | 'revoked' | 'expired'): Promise<void> {
-    await this.pool.execute(
-      'UPDATE company_invitations SET status = ? WHERE id = ?',
-      [status, id],
+    await withDbTimeout(
+      this.pool.execute(
+        'UPDATE company_invitations SET status = ? WHERE id = ?',
+        [status, id],
+      ),
+      5_000,
+      'updateInvitationStatus',
     );
   }
 
@@ -538,21 +569,28 @@ export class MySqlAuthStore implements AuthStore {
     companyId: string,
     email: string,
   ): Promise<CompanyInvitation | null> {
-    const [rows] = await this.pool.execute<RowDataPacket[]>(
-      `SELECT i.*, c.name AS company_name, u.display_name AS invited_by_name
-         FROM company_invitations i
-         JOIN companies c ON c.id = i.company_id
-         LEFT JOIN users u ON u.id = i.invited_by
-        WHERE i.company_id = ? AND i.email = ? AND i.status = 'pending'
-        LIMIT 1`,
-      [companyId, email],
+    const [rows] = await withDbTimeout(
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT i.id, i.company_id, i.invited_by, i.email, i.role, i.token, i.status,
+                i.expires_at, i.created_at, i.updated_at,
+                c.name AS company_name, u.display_name AS invited_by_name
+           FROM company_invitations i
+           LEFT JOIN companies c ON c.id = i.company_id
+           LEFT JOIN users u ON u.id = i.invited_by
+          WHERE i.company_id = ? AND i.email = ? AND i.status = 'pending'
+          ORDER BY i.created_at DESC
+          LIMIT 1`,
+        [companyId, email],
+      ),
+      5_000,
+      'findPendingInvitationByEmail',
     );
     const row = rows[0];
     if (!row) return null;
     return {
       id: row.id,
       companyId: row.company_id,
-      companyName: row.company_name,
+      companyName: row.company_name ?? 'Workspace',
       invitedBy: row.invited_by,
       invitedByName: row.invited_by_name ?? null,
       email: row.email,
@@ -570,11 +608,15 @@ export class MySqlAuthStore implements AuthStore {
     input: { token: string; role: 'admin' | 'editor' | 'viewer'; expiresAt: Date },
   ): Promise<CompanyInvitation> {
     const now = new Date();
-    await this.pool.execute(
-      `UPDATE company_invitations
-          SET token = ?, role = ?, expires_at = ?, status = 'pending', updated_at = ?
-        WHERE id = ?`,
-      [input.token, input.role, input.expiresAt, now, id],
+    await withDbTimeout(
+      this.pool.execute(
+        `UPDATE company_invitations
+            SET token = ?, role = ?, expires_at = ?, status = 'pending', updated_at = ?
+          WHERE id = ?`,
+        [input.token, input.role, input.expiresAt, now, id],
+      ),
+      5_000,
+      'updatePendingInvitation',
     );
     const updated = await this.findInvitationById(id);
     if (!updated) throw new Error('Invitation record not found after update');
@@ -582,7 +624,11 @@ export class MySqlAuthStore implements AuthStore {
   }
 
   async deleteInvitation(id: string): Promise<void> {
-    await this.pool.execute('DELETE FROM company_invitations WHERE id = ?', [id]);
+    await withDbTimeout(
+      this.pool.execute('DELETE FROM company_invitations WHERE id = ?', [id]),
+      5_000,
+      'deleteInvitation',
+    );
   }
 
   async findUserByEmail(email: string): Promise<UserWithCredentials | null> {
@@ -629,28 +675,32 @@ export class MySqlAuthStore implements AuthStore {
   }
 
   async findSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null> {
-    const [rows] = await this.pool.execute<SessionRow[]>(
-      `SELECT s.id            AS session_id,
-              s.token_hash,
-              s.csrf_token,
-              s.created_at    AS session_created_at,
-              s.expires_at,
-              s.last_seen_at,
-              s.revoked_at,
-              u.id            AS user_id,
-              u.email,
-              u.display_name,
-              u.company_id,
-              c.name          AS company_name,
-              u.role,
-              u.is_active,
-              u.password_changed_at
-         FROM sessions s
-         JOIN users u ON u.id = s.user_id
-         LEFT JOIN companies c ON c.id = u.company_id
-        WHERE s.token_hash = ?
-        LIMIT 1`,
-      [tokenHash],
+    const [rows] = await withDbTimeout(
+      this.pool.execute<SessionRow[]>(
+        `SELECT s.id            AS session_id,
+                s.token_hash,
+                s.csrf_token,
+                s.created_at    AS session_created_at,
+                s.expires_at,
+                s.last_seen_at,
+                s.revoked_at,
+                u.id            AS user_id,
+                u.email,
+                u.display_name,
+                u.company_id,
+                c.name          AS company_name,
+                u.role,
+                u.is_active,
+                u.password_changed_at
+           FROM sessions s
+           JOIN users u ON u.id = s.user_id
+           LEFT JOIN companies c ON c.id = u.company_id
+          WHERE s.token_hash = ?
+          LIMIT 1`,
+        [tokenHash],
+      ),
+      5_000,
+      'findSessionByTokenHash',
     );
     const row = rows[0];
     if (!row) return null;
