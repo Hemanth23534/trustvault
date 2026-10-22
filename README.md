@@ -28,9 +28,9 @@ For testing and evaluating TrustVault's role-based access control, document shar
 
 | Role | Email Address | Password | Permissions & Intended Use |
 |------|---------------|----------|----------------------------|
-| **Workspace Owner** | `owner@trustvault.local` | `TrustVault2026!Demo` | Full workspace control: upload documents, manage company members, invite users, update member roles, and configure workspace settings. |
-| **Platform Administrator** | `admin@trustvault.local` | `TrustVault2026!Demo` | System governance: access tamper-evident audit logs (`/admin`), verify SHA-256 hash chains, create checkpoints, and manage user statuses. *(Zero access to company documents)* |
-| **Viewer** | `viewer@trustvault.local` | `TrustVault2026!Demo` | Read-only access: view metadata and download only documents explicitly shared with this account. |
+| **Workspace Owner** | `owner@trustvault.local` | `TrustVault2026!` | Full workspace control: upload documents, manage company members, invite users, update member roles, and configure workspace settings. |
+| **Platform Administrator** | `admin@trustvault.local` | `TrustVault2026!` | System governance: access tamper-evident audit logs (`/admin`), verify SHA-256 hash chains, create checkpoints, and manage user statuses. *(Zero access to company documents)* |
+| **Viewer** | `viewer@trustvault.local` | `TrustVault2026!` | Read-only access: view metadata and download only documents explicitly shared with this account. |
 
 > [!IMPORTANT]
 > **Testing and Demo Purposes Only**:
