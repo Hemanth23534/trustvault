@@ -62,6 +62,7 @@ function generatePassword(): string {
 
 export const DEMO_COMPANY_ID = 'c0000000-0000-4000-a000-000000000001';
 export const DEMO_COMPANY_NAME = 'TrustVault Demo Org';
+export const DEFAULT_DEMO_PASSWORD = 'TrustVault2026!Demo';
 
 export interface SeededAccount {
   email: string;
@@ -86,7 +87,7 @@ export async function seed(
     [DEMO_COMPANY_ID, DEMO_COMPANY_NAME, now, now],
   );
 
-  const defaultPassword = process.env.SEED_DEFAULT_PASSWORD?.trim() ?? '';
+  const envDefaultPassword = process.env.SEED_DEFAULT_PASSWORD?.trim() ?? '';
 
   for (const account of DEMO_ACCOUNTS) {
     const [rows] = await pool.execute<ExistingUserRow[]>(
@@ -96,14 +97,14 @@ export async function seed(
     const existing = rows[0];
 
     const specificPassword = process.env[account.passwordEnv]?.trim() ?? '';
-    const suppliedPassword = specificPassword.length > 0 ? specificPassword : defaultPassword;
+    const suppliedPassword = specificPassword.length > 0 ? specificPassword : envDefaultPassword;
     const hasSuppliedPassword = suppliedPassword.length > 0;
     const shouldSetPassword = existing === undefined || rotatePasswords || hasSuppliedPassword;
 
     const password = shouldSetPassword
       ? hasSuppliedPassword
         ? suppliedPassword
-        : generatePassword()
+        : DEFAULT_DEMO_PASSWORD
       : null;
 
     const passwordHash =

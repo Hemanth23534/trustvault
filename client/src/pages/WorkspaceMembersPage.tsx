@@ -16,11 +16,19 @@ import { roleLabel, formatDate } from '../lib/format';
 import { IconUsers, IconShield, IconClose } from '../components/ui/Icons';
 import { Skeleton, EmptyState } from '../components/ui/Feedback';
 
-export function WorkspaceMembersPage(): JSX.Element {
+export function WorkspaceMembersPage({
+  initialLoading = true,
+  initialMembers = [],
+  initialInvitations = [],
+}: {
+  initialLoading?: boolean;
+  initialMembers?: AuthUser[];
+  initialInvitations?: CompanyInvitation[];
+} = {}): JSX.Element {
   const { user, csrfToken } = useAuth();
-  const [members, setMembers] = useState<AuthUser[]>([]);
-  const [invitations, setInvitations] = useState<CompanyInvitation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [members, setMembers] = useState<AuthUser[]>(initialMembers);
+  const [invitations, setInvitations] = useState<CompanyInvitation[]>(initialInvitations);
+  const [loading, setLoading] = useState(initialLoading);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -112,7 +120,9 @@ export function WorkspaceMembersPage(): JSX.Element {
       const invite = result.data.invitation;
       const inviteUrl =
         result.data.inviteUrl ||
-        `${window.location.origin}/register?invite=${encodeURIComponent(invite.token)}`;
+        (typeof window !== 'undefined'
+          ? `${window.location.origin}/register?invite=${encodeURIComponent(invite.token)}`
+          : `/register?invite=${encodeURIComponent(invite.token)}`);
       setLastInviteLink(inviteUrl);
       setNotice('Invitation created. Copy the invitation link to share it securely.');
       setInviteEmail('');
@@ -237,30 +247,35 @@ export function WorkspaceMembersPage(): JSX.Element {
             <Skeleton lines={4} />
           </div>
         ) : (
-          <div className="table-wrap" style={{ marginTop: '1.5rem' }}>
-            <table className="table">
+          <div className="table-wrap members-table-wrap" style={{ marginTop: '1.5rem' }}>
+            <table className="data-table members-table">
               <thead>
                 <tr>
-                  <th>User</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  {canManage ? <th style={{ textAlign: 'right' }}>Actions</th> : null}
+                  <th scope="col" className="col-user">User</th>
+                  <th scope="col" className="col-email">Email</th>
+                  <th scope="col" className="col-role">Role</th>
+                  {canManage ? <th scope="col" className="col-actions" style={{ textAlign: 'right' }}>Actions</th> : null}
                 </tr>
               </thead>
               <tbody>
                 {members.map((member) => (
                   <tr key={member.id}>
-                    <td>
-                      <strong>{member.displayName ?? '—'}</strong>
-                      {member.id === user.id ? <span className="badge badge-neutral" style={{ marginLeft: '0.5rem' }}>You</span> : null}
+                    <td className="col-user">
+                      <div className="cell-user">
+                        <strong>{member.displayName ?? '—'}</strong>
+                        {member.id === user.id ? <span className="badge badge-info">You</span> : null}
+                      </div>
                     </td>
-                    <td>{member.email}</td>
-                    <td>
+                    <td className="col-email">
+                      <span className="cell-email" title={member.email}>{member.email}</span>
+                    </td>
+                    <td className="col-role">
                       {isOwner && member.id !== user.id ? (
                         <select
                           value={member.role}
                           onChange={(e) => void handleChangeRole(member.id, e.target.value as UserRole)}
                           className="input-select-sm"
+                          aria-label={`Role for ${member.displayName ?? member.email}`}
                         >
                           <option value="owner">Owner</option>
                           <option value="admin">Administrator</option>
@@ -268,16 +283,18 @@ export function WorkspaceMembersPage(): JSX.Element {
                           <option value="viewer">Viewer</option>
                         </select>
                       ) : (
-                        <span className="badge badge-neutral">{roleLabel(member.role)}</span>
+                        <span className={`badge ${member.role === 'owner' ? 'badge-role-owner' : member.role === 'admin' ? 'badge-info' : 'badge-neutral'}`}>
+                          {roleLabel(member.role)}
+                        </span>
                       )}
                     </td>
                     {canManage ? (
-                      <td style={{ textAlign: 'right' }}>
+                      <td className="col-actions" style={{ textAlign: 'right' }}>
                         {member.id !== user.id && member.role !== 'owner' ? (
                           <button
                             type="button"
                             className="button button-ghost button-sm"
-                            style={{ color: 'var(--color-error)' }}
+                            style={{ color: 'var(--status-danger)' }}
                             onClick={() => void handleRemoveMember(member)}
                           >
                             Remove
@@ -359,44 +376,54 @@ export function WorkspaceMembersPage(): JSX.Element {
           {pendingInvitations.length > 0 ? (
             <div style={{ marginTop: '1.75rem' }}>
               <h4 style={{ marginBottom: '0.75rem' }}>Pending Invitations</h4>
-              <div className="table-wrap">
-                <table className="table">
+              <div className="table-wrap invitations-table-wrap">
+                <table className="data-table invitations-table">
                   <thead>
                     <tr>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Expires</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
+                      <th scope="col" className="col-email">Email</th>
+                      <th scope="col" className="col-role">Role</th>
+                      <th scope="col" className="col-expires">Expires</th>
+                      <th scope="col" className="col-actions-invites" style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pendingInvitations.map((inv) => {
-                      const inviteUrl = `${window.location.origin}/register?invite=${encodeURIComponent(inv.token)}`;
+                      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+                      const inviteUrl = `${origin}/register?invite=${encodeURIComponent(inv.token)}`;
                       return (
                         <tr key={inv.id}>
-                          <td><strong>{inv.email}</strong></td>
-                          <td><span className="badge badge-neutral">{roleLabel(inv.role)}</span></td>
-                          <td>{formatDate(inv.expiresAt)}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            <button
-                              type="button"
-                              className="button button-secondary button-sm"
-                              style={{ marginRight: '0.5rem' }}
-                              onClick={() => {
-                                void navigator.clipboard.writeText(inviteUrl);
-                                setNotice(`Invitation link for ${inv.email} copied to clipboard!`);
-                              }}
-                            >
-                              Copy Link
-                            </button>
-                            <button
-                              type="button"
-                              className="button button-ghost button-sm"
-                              style={{ color: 'var(--color-error)' }}
-                              onClick={() => void handleRevokeInvite(inv.id)}
-                            >
-                              Revoke
-                            </button>
+                          <td className="col-email">
+                            <strong className="cell-email" title={inv.email}>{inv.email}</strong>
+                          </td>
+                          <td className="col-role">
+                            <span className={`badge ${inv.role === 'admin' ? 'badge-info' : 'badge-neutral'}`}>
+                              {roleLabel(inv.role)}
+                            </span>
+                          </td>
+                          <td className="col-expires" style={{ whiteSpace: 'nowrap' }}>
+                            {formatDate(inv.expiresAt)}
+                          </td>
+                          <td className="col-actions-invites" style={{ textAlign: 'right' }}>
+                            <div className="table-actions-group">
+                              <button
+                                type="button"
+                                className="button button-secondary button-sm"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(inviteUrl);
+                                  setNotice(`Invitation link for ${inv.email} copied to clipboard!`);
+                                }}
+                              >
+                                Copy Link
+                              </button>
+                              <button
+                                type="button"
+                                className="button button-ghost button-sm"
+                                style={{ color: 'var(--status-danger)' }}
+                                onClick={() => void handleRevokeInvite(inv.id)}
+                              >
+                                Revoke
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -417,14 +444,14 @@ export function WorkspaceMembersPage(): JSX.Element {
           {pastInvitations.length > 0 ? (
             <div style={{ marginTop: '2rem' }}>
               <h4 style={{ marginBottom: '0.75rem' }}>Invitation History</h4>
-              <div className="table-wrap">
-                <table className="table">
+              <div className="table-wrap history-table-wrap">
+                <table className="data-table history-table">
                   <thead>
                     <tr>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Status</th>
-                      <th>Updated</th>
+                      <th scope="col" className="col-email">Email</th>
+                      <th scope="col" className="col-role">Role</th>
+                      <th scope="col" className="col-status">Status</th>
+                      <th scope="col" className="col-date">Updated</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -433,21 +460,23 @@ export function WorkspaceMembersPage(): JSX.Element {
                         inv.status === 'accepted' ? (
                           <span className="badge badge-success">Accepted</span>
                         ) : inv.status === 'revoked' ? (
-                          <span className="badge badge-neutral" style={{ color: 'var(--color-error)' }}>
-                            Revoked
-                          </span>
+                          <span className="badge badge-danger">Revoked</span>
                         ) : (
-                          <span className="badge badge-neutral">Expired</span>
+                          <span className="badge badge-warning">Expired</span>
                         );
 
                       return (
                         <tr key={inv.id}>
-                          <td>{inv.email}</td>
-                          <td>
+                          <td className="col-email">
+                            <span className="cell-email" title={inv.email}>{inv.email}</span>
+                          </td>
+                          <td className="col-role">
                             <span className="badge badge-neutral">{roleLabel(inv.role)}</span>
                           </td>
-                          <td>{statusBadge}</td>
-                          <td>{formatDate(inv.updatedAt || inv.createdAt)}</td>
+                          <td className="col-status">{statusBadge}</td>
+                          <td className="col-date" style={{ whiteSpace: 'nowrap' }}>
+                            {formatDate(inv.updatedAt || inv.createdAt)}
+                          </td>
                         </tr>
                       );
                     })}

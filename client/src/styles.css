@@ -815,46 +815,244 @@ p {
 .table-wrap {
   width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
 }
 
-.data-table {
+.data-table,
+.table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
   font-size: 0.88rem;
 }
 
-.data-table th {
+.data-table th,
+.table th {
   background: var(--bg-surface);
   color: var(--text-muted);
   font-weight: 600;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 0.75rem 1rem;
+  padding: 0.85rem 1.15rem;
   border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
+  vertical-align: middle;
 }
 
-.data-table td {
-  padding: 0.85rem 1rem;
+.data-table td,
+.table td {
+  padding: 0.95rem 1.15rem;
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   vertical-align: middle;
 }
 
-.data-table tbody tr {
+.data-table tbody tr,
+.table tbody tr {
   transition: background-color 0.1s ease;
 }
 
-.data-table tbody tr:hover {
+.data-table tbody tr:hover,
+.table tbody tr:hover {
   background: rgba(255, 255, 255, 0.025);
 }
 
-.data-table tbody tr:last-child td {
+.data-table tbody tr:last-child td,
+.table tbody tr:last-child td {
   border-bottom: none;
+}
+
+/* Members Table Column Widths & Layout */
+.members-table {
+  min-width: 620px;
+}
+
+.members-table .col-user {
+  width: 28%;
+  min-width: 160px;
+}
+
+.members-table .col-email {
+  width: 36%;
+  min-width: 220px;
+}
+
+.members-table .col-role {
+  width: 22%;
+  min-width: 140px;
+}
+
+.members-table .col-actions {
+  width: 14%;
+  min-width: 100px;
+  text-align: right;
+}
+
+/* Pending Invitations Table */
+.invitations-table {
+  min-width: 660px;
+}
+
+.invitations-table .col-email {
+  width: 38%;
+  min-width: 220px;
+}
+
+.invitations-table .col-role {
+  width: 18%;
+  min-width: 120px;
+}
+
+.invitations-table .col-expires {
+  width: 18%;
+  min-width: 130px;
+}
+
+.invitations-table .col-actions-invites {
+  width: 26%;
+  min-width: 190px;
+  text-align: right;
+}
+
+/* Invitation History Table */
+.history-table {
+  min-width: 580px;
+}
+
+.history-table .col-email {
+  width: 44%;
+  min-width: 220px;
+}
+
+.history-table .col-role {
+  width: 20%;
+  min-width: 120px;
+}
+
+.history-table .col-status {
+  width: 18%;
+  min-width: 110px;
+}
+
+.history-table .col-date {
+  width: 18%;
+  min-width: 130px;
+}
+
+.cell-user {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cell-user strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.cell-email {
+  display: inline-block;
+  max-width: 100%;
+  word-break: break-all;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
+.table-actions-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.input-select-sm {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-xs);
+  padding: 0.35rem 0.65rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  min-width: 130px;
+  max-width: 155px;
+  height: 32px;
+  vertical-align: middle;
+}
+
+.input-select-sm:hover {
+  border-color: var(--border-strong);
+  background-color: var(--bg-surface-hover);
+}
+
+.input-select-sm:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.input-select-sm option {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-xs);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.badge-neutral {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
+.badge-info {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.25);
+}
+
+.badge-success {
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
+  border-color: var(--status-ok-border);
+}
+
+.badge-warning {
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
+  border-color: var(--status-warn-border);
+}
+
+.badge-danger {
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
+  border-color: var(--status-danger-border);
+}
+
+.badge-role-owner {
+  background: rgba(56, 189, 248, 0.14);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
 }
 
 .cell-document {

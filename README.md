@@ -22,6 +22,25 @@ Snovasys hackathon.
 
 ---
 
+## Demo Login Credentials
+
+For testing and evaluating TrustVault's role-based access control, document sharing, and administrative governance, pre-configured demo accounts are provided:
+
+| Role | Email Address | Password | Permissions & Intended Use |
+|------|---------------|----------|----------------------------|
+| **Workspace Owner** | `owner@trustvault.local` | `TrustVault2026!Demo` | Full workspace control: upload documents, manage company members, invite users, update member roles, and configure workspace settings. |
+| **Platform Administrator** | `admin@trustvault.local` | `TrustVault2026!Demo` | System governance: access tamper-evident audit logs (`/admin`), verify SHA-256 hash chains, create checkpoints, and manage user statuses. *(Zero access to company documents)* |
+| **Viewer** | `viewer@trustvault.local` | `TrustVault2026!Demo` | Read-only access: view metadata and download only documents explicitly shared with this account. |
+
+> [!IMPORTANT]
+> **Testing and Demo Purposes Only**:
+> - These credentials are provided strictly for testing, local evaluation, and demonstration.
+> - Passwords in the database are hashed with bcrypt (cost factor 12) and are never stored in plaintext.
+> - Real users should never use these credentials. Production organizations self-register securely at `/register` or join via workspace invitations (`?invite=<token>`).
+> - To provision or update demo accounts locally, run: `npm run seed --workspace @trustvault/server`.
+
+---
+
 ## What exists today
 
 | Area | Status |
