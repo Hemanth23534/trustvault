@@ -2,7 +2,14 @@ import { useEffect, useState, type FormEvent, type JSX } from 'react';
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { BrandMark } from '../components/BrandMark';
 import { LoadingBlock } from '../components/ui/Feedback';
-import { IconActivity, IconLock, IconShare, IconShield } from '../components/ui/Icons';
+import {
+  IconActivity,
+  IconBuilding,
+  IconLock,
+  IconShare,
+  IconShield,
+  IconUsers,
+} from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
 import { fetchInvitationDetails, type InvitationDetails, extractErrorMessage } from '../lib/auth';
 import { roleLabel } from '../lib/format';
@@ -208,31 +215,47 @@ export function LoginPage(): JSX.Element {
             </button>
           </form>
 
-          <p className="login-hint" style={{ marginTop: '1.25rem', textAlign: 'center' }}>
-            {inviteTokenParam ? (
-              <>
-                Don&apos;t have an account yet?{' '}
-                <Link
-                  to={`/register?invite=${encodeURIComponent(inviteTokenParam)}`}
-                  style={{ fontWeight: 600, color: 'var(--color-brand)' }}
-                >
-                  Create your account here
-                </Link>
-              </>
-            ) : (
-              <>
-                New company or organization?{' '}
-                <Link to="/register" style={{ fontWeight: 600, color: 'var(--color-brand)' }}>
-                  Register company workspace
-                </Link>
-              </>
-            )}
-          </p>
+          <div className="login-divider" role="separator" aria-label="or">
+            <span>or</span>
+          </div>
 
-          <p className="login-hint">
-            Demo accounts are created with <code className="mono">npm run seed</code> in the server
-            workspace; the seed prints each generated password once.
-          </p>
+          <div className="login-register-section">
+            <div className="login-register-header">
+              <h3>New to TrustVault?</h3>
+              <p>
+                {inviteTokenParam
+                  ? 'Create your employee account to accept this workspace invitation.'
+                  : 'Create your company workspace and start sharing documents securely.'}
+              </p>
+            </div>
+            <Link
+              to={
+                inviteTokenParam
+                  ? `/register?invite=${encodeURIComponent(inviteTokenParam)}`
+                  : '/register'
+              }
+              className="button button-register button-block"
+            >
+              {inviteTokenParam ? (
+                <IconUsers width={18} height={18} aria-hidden="true" />
+              ) : (
+                <IconBuilding width={18} height={18} aria-hidden="true" />
+              )}
+              <span>
+                {inviteTokenParam
+                  ? 'Create Account to Join Workspace'
+                  : 'Create Company Workspace'}
+              </span>
+            </Link>
+          </div>
+
+          <div className="login-demo-notice">
+            <span className="login-demo-badge">Demo Mode</span>
+            <p className="small muted">
+              Pre-seeded accounts are configured with demo credentials. See{' '}
+              <code className="mono">README.md</code> or run <code className="mono">npm run seed</code>.
+            </p>
+          </div>
         </div>
 
         <p className="login-footnote">

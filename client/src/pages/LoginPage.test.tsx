@@ -153,4 +153,54 @@ describe('LoginPage redirect and session behavior', () => {
     expect(navigateSpy).toHaveBeenCalledWith({ to: '/dashboard', replace: true });
     expect(html).toContain('data-to="/dashboard"');
   });
+
+  it('renders a visually distinct company registration section linking to /register', () => {
+    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+      mockAuthContext({ status: 'anonymous' }),
+    );
+
+    const html = renderToString(
+      <MemoryRouter initialEntries={['/login']}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // Primary action
+    expect(html).toContain('Sign in');
+    expect(html).toContain('button button-primary button-block');
+
+    // Visual divider
+    expect(html).toContain('class="login-divider"');
+
+    // Visually distinct secondary registration callout
+    expect(html).toContain('class="login-register-section"');
+    expect(html).toContain('New to TrustVault?');
+    expect(html).toContain('Create your company workspace and start sharing documents securely.');
+    expect(html).toContain('Create Company Workspace');
+    expect(html).toContain('href="/register"');
+    expect(html).toContain('button button-register button-block');
+
+    // Demo notice is separate and secondary
+    expect(html).toContain('class="login-demo-notice"');
+  });
+
+  it('renders an invite onboarding button linking to /register with invite token when present', () => {
+    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+      mockAuthContext({ status: 'anonymous' }),
+    );
+
+    const html = renderToString(
+      <MemoryRouter initialEntries={['/login?invite=token-abc-123']}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain('href="/register?invite=token-abc-123"');
+    expect(html).toContain('Create Account to Join Workspace');
+    expect(html).toContain('Create your employee account to accept this workspace invitation.');
+  });
 });
