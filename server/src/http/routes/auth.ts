@@ -32,6 +32,15 @@ const registerBodySchema = z.object({
   password: z.string().min(12, 'Password must be at least 12 characters').max(128),
 });
 
+const updateProfileSchema = z.object({
+  displayName: z.string().trim().min(2, 'Name must be at least 2 characters').max(80),
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required').max(128),
+  newPassword: z.string().min(12, 'New password must be at least 12 characters').max(128),
+});
+
 export interface AuthRouterOptions {
   env: Env;
   service: AuthService;
@@ -176,6 +185,56 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
       user: context.user,
       session: serializeSession(context),
     });
+  });
+
+  /**
+   * PATCH /api/auth/profile
+   * Updates display name for the authenticated user.
+   */
+  router.patch('/profile', guard, async (req, res) => {
+    const context = requireAuthContext(req);
+    const parsed = updateProfileSchema.safeParse(req.body);
+    if (!parsed.success) throw parsed.error;
+
+    const updated = await service.updateProfile(
+      context.user,
+      { displayName: parsed.data.displayName },
+      {
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        requestId: req.id,
+      },
+    );
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json({ user: updated });
+  });
+
+  /**
+   * POST /api/auth/change-password
+   * Changes password for the authenticated user and revokes other sessions.
+   */
+  router.post('/change-password', guard, async (req, res) => {
+    const context = requireAuthContext(req);
+    const parsed = changePasswordSchema.safeParse(req.body);
+    if (!parsed.success) throw parsed.error;
+
+    const result = await service.changePassword(
+      context.user,
+      {
+        currentPassword: parsed.data.currentPassword,
+        newPassword: parsed.data.newPassword,
+      },
+      {
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        requestId: req.id,
+      },
+      context.session.id,
+    );
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json(result);
   });
 
   /**

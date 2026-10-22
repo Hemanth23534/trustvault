@@ -124,7 +124,7 @@ export function DocumentsPage(): JSX.Element {
     scope !== 'all';
 
   return (
-    <div className="stack">
+    <div className="stack page-enter">
       <section className="page-intro">
         <div>
           <p className="eyebrow">Library</p>

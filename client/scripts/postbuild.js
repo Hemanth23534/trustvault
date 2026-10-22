@@ -25,6 +25,7 @@ const routes = [
   'documents',
   'history',
   'admin',
+  'profile',
 ];
 
 const indexContent = fs.readFileSync(indexHtmlPath, 'utf8');

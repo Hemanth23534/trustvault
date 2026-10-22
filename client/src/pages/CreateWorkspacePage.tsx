@@ -41,7 +41,7 @@ export function CreateWorkspacePage(): JSX.Element {
   }
 
   return (
-    <div className="stack" style={{ maxWidth: 540, margin: '2rem auto' }}>
+    <div className="stack page-enter" style={{ maxWidth: 540, margin: '2rem auto' }}>
       <div className="card">
         <header className="card-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

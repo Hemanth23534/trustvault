@@ -82,7 +82,7 @@ export function WorkspaceSettingsPage(): JSX.Element {
   }
 
   return (
-    <div className="stack" style={{ maxWidth: 680, margin: '0 auto', gap: '2rem' }}>
+    <div className="stack page-enter" style={{ maxWidth: 680, margin: '0 auto', gap: '2rem' }}>
       <div className="card">
         <header className="card-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

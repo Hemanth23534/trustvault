@@ -159,7 +159,7 @@ export function DocumentDetailPage(): JSX.Element {
   const manageable = canManageDocument(document);
 
   return (
-    <div className="stack">
+    <div className="stack page-enter">
       <Link className="link-inline" to="/documents">
         <IconArrowLeft width={15} height={15} /> Back to documents
       </Link>

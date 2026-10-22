@@ -211,6 +211,15 @@ export function UploadForm({ csrfToken, onUploaded }: UploadFormProps): JSX.Elem
         </p>
       ) : null}
 
+      {busy ? (
+        <div className="upload-progress-wrap" role="progressbar" aria-valuetext="Uploading document…">
+          <div className="upload-progress-bar" />
+          <span className="muted small" style={{ textAlign: 'center' }}>
+            Encrypting and streaming document to private vault…
+          </span>
+        </div>
+      ) : null}
+
       <div className="form-actions">
         <button className="button button-primary" type="submit" disabled={busy || file === null}>
           <IconUpload width={16} height={16} />

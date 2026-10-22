@@ -218,7 +218,7 @@ export function WorkspaceMembersPage({
   }
 
   return (
-    <div className="stack" style={{ maxWidth: 960, margin: '0 auto', gap: '2rem' }}>
+    <div className="stack page-enter" style={{ maxWidth: 960, margin: '0 auto', gap: '2rem' }}>
       <div className="card">
         <header className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>

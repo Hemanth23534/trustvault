@@ -533,6 +533,93 @@ export class AuthService {
     });
   }
 
+  async updateProfile(
+    actor: AuthUser,
+    input: { displayName: string },
+    request: RequestContext = {},
+  ): Promise<AuthUser> {
+    const trimmed = input.displayName.trim();
+    if (trimmed.length < 2 || trimmed.length > 80) {
+      throw new AuthError(400, 'INVALID_NAME', 'Name must be between 2 and 80 characters.');
+    }
+    const updated = await this.store.updateUserProfile(actor.id, { displayName: trimmed });
+    if (!updated) {
+      throw new AuthError(404, 'USER_NOT_FOUND', 'User not found.');
+    }
+    await this.audit({
+      userId: actor.id,
+      companyId: actor.companyId,
+      targetUserId: actor.id,
+      action: 'user.update_profile',
+      outcome: 'success',
+      resourceType: 'user',
+      resourceId: actor.id,
+      requestId: request.requestId,
+      ip: request.ip,
+      userAgent: request.userAgent,
+      metadata: { displayName: trimmed },
+    });
+    return updated;
+  }
+
+  async changePassword(
+    actor: AuthUser,
+    input: { currentPassword: string; newPassword: string },
+    request: RequestContext = {},
+    currentSessionId?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const user = await this.store.findUserById(actor.id);
+    if (!user) {
+      throw new AuthError(404, 'USER_NOT_FOUND', 'User not found.');
+    }
+    const currentValid = await verifyPassword(input.currentPassword, user.passwordHash);
+    if (!currentValid) {
+      await this.audit({
+        userId: actor.id,
+        companyId: actor.companyId,
+        targetUserId: actor.id,
+        action: 'user.change_password',
+        outcome: 'failure',
+        resourceType: 'user',
+        resourceId: actor.id,
+        requestId: request.requestId,
+        ip: request.ip,
+        userAgent: request.userAgent,
+        metadata: { reason: 'invalid_current_password' },
+      });
+      throw new AuthError(401, 'INVALID_PASSWORD', 'Current password is incorrect.');
+    }
+    if (input.newPassword.length < 12 || input.newPassword.length > 128) {
+      throw new AuthError(400, 'PASSWORD_TOO_SHORT', 'New password must be between 12 and 128 characters.');
+    }
+    if (input.newPassword === input.currentPassword) {
+      throw new AuthError(400, 'PASSWORD_UNCHANGED', 'New password must be different from current password.');
+    }
+    const newHash = await hashPassword(input.newPassword, this.env.security.bcryptCost);
+    await this.store.updateUserPassword(actor.id, newHash);
+
+    // Revoke any other sessions for security
+    if (currentSessionId) {
+      await this.store.revokeUserSessions(actor.id, this.clock(), currentSessionId);
+    }
+
+    await this.audit({
+      userId: actor.id,
+      companyId: actor.companyId,
+      targetUserId: actor.id,
+      action: 'user.change_password',
+      outcome: 'success',
+      resourceType: 'user',
+      resourceId: actor.id,
+      requestId: request.requestId,
+      ip: request.ip,
+      userAgent: request.userAgent,
+      metadata: { revokedOtherSessions: Boolean(currentSessionId) },
+    });
+
+    return { success: true, message: 'Password updated successfully.' };
+  }
+
   async setUserStatus(
     adminActor: AuthUser,
     targetUserId: string,

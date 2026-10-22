@@ -282,6 +282,28 @@ export class InMemoryAuthStore implements AuthStore {
     return user ? { ...user } : null;
   }
 
+  async updateUserProfile(userId: string, patch: { displayName: string }): Promise<AuthUser | null> {
+    const user = this.users.get(userId);
+    if (!user) return null;
+    user.displayName = patch.displayName;
+    return {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      companyId: user.companyId,
+      companyName: user.companyName,
+      role: user.role,
+      isActive: user.isActive,
+    };
+  }
+
+  async updateUserPassword(userId: string, passwordHash: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (!user) return;
+    user.passwordHash = passwordHash;
+    user.passwordChangedAt = new Date();
+  }
+
   async setUserActive(userId: string, isActive: boolean): Promise<boolean> {
     const user = this.users.get(userId);
     if (!user) return false;

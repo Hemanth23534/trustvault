@@ -147,6 +147,8 @@ export interface AuthStore {
   updateInvitationStatus(id: string, status: 'accepted' | 'revoked' | 'expired'): Promise<void>;
   findUserByEmail(email: string): Promise<UserWithCredentials | null>;
   findUserById(id: string): Promise<UserWithCredentials | null>;
+  updateUserProfile(userId: string, patch: { displayName: string }): Promise<AuthUser | null>;
+  updateUserPassword(userId: string, passwordHash: string): Promise<void>;
   setUserActive(userId: string, isActive: boolean): Promise<boolean>;
   findSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null>;
   createSession(input: CreateSessionInput): Promise<void>;
@@ -688,6 +690,39 @@ export class MySqlAuthStore implements AuthStore {
     );
     const row = rows[0];
     return row ? toUser(row) : null;
+  }
+
+  async updateUserProfile(userId: string, patch: { displayName: string }): Promise<AuthUser | null> {
+    await withDbTimeout(
+      this.pool.execute(
+        'UPDATE users SET display_name = ?, updated_at = NOW() WHERE id = ?',
+        [patch.displayName, userId],
+      ),
+      5_000,
+      'updateUserProfile',
+    );
+    const user = await this.findUserById(userId);
+    if (!user) return null;
+    return {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      companyId: user.companyId,
+      companyName: user.companyName,
+      role: user.role,
+      isActive: user.isActive,
+    };
+  }
+
+  async updateUserPassword(userId: string, passwordHash: string): Promise<void> {
+    await withDbTimeout(
+      this.pool.execute(
+        'UPDATE users SET password_hash = ?, password_changed_at = NOW(3), updated_at = NOW() WHERE id = ?',
+        [passwordHash, userId],
+      ),
+      5_000,
+      'updateUserPassword',
+    );
   }
 
   async setUserActive(userId: string, isActive: boolean): Promise<boolean> {

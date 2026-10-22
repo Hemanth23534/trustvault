@@ -493,3 +493,84 @@ describe('response hygiene', () => {
     }
   });
 });
+
+describe('profile and password settings', () => {
+  it('updates display name when authenticated with valid CSRF token', async () => {
+    const { app, store } = buildStack();
+    const user = await addUser(store, { email: 'user@trustvault.local' });
+
+    const loginResponse = await login(app, user.email).expect(200);
+    const cookie = sessionCookie(loginResponse);
+    const csrfToken = loginResponse.body.session.csrfToken;
+
+    const res = await request(app)
+      .patch('/api/auth/profile')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .send({ displayName: 'Alex Security Pro' })
+      .expect(200);
+
+    expect(res.body.user.displayName).toBe('Alex Security Pro');
+
+    // Verify persistence via /me
+    const me = await request(app)
+      .get('/api/auth/me')
+      .set('Cookie', cookie)
+      .expect(200);
+
+    expect(me.body.user.displayName).toBe('Alex Security Pro');
+  });
+
+  it('rejects profile update without CSRF token', async () => {
+    const { app, store } = buildStack();
+    const user = await addUser(store);
+
+    const loginResponse = await login(app, user.email).expect(200);
+    const cookie = sessionCookie(loginResponse);
+
+    await request(app)
+      .patch('/api/auth/profile')
+      .set('Cookie', cookie)
+      .send({ displayName: 'Attacker' })
+      .expect(403);
+  });
+
+  it('changes password securely and allows subsequent login with new password', async () => {
+    const { app, store } = buildStack();
+    const user = await addUser(store, { email: 'passchange@trustvault.local', password: 'OldPassword123!Secure' });
+
+    const loginResponse = await login(app, user.email, 'OldPassword123!Secure').expect(200);
+    const cookie = sessionCookie(loginResponse);
+    const csrfToken = loginResponse.body.session.csrfToken;
+
+    // Fail if current password wrong
+    await request(app)
+      .post('/api/auth/change-password')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .send({ currentPassword: 'WrongPassword!', newPassword: 'NewPassword123!Super' })
+      .expect(401);
+
+    // Fail if new password same as current
+    await request(app)
+      .post('/api/auth/change-password')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .send({ currentPassword: 'OldPassword123!Secure', newPassword: 'OldPassword123!Secure' })
+      .expect(400);
+
+    // Succeed with valid passwords
+    await request(app)
+      .post('/api/auth/change-password')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .send({ currentPassword: 'OldPassword123!Secure', newPassword: 'BrandNewSecure2026!Pass' })
+      .expect(200);
+
+    // Login with old password must fail
+    await login(app, user.email, 'OldPassword123!Secure').expect(401);
+
+    // Login with new password must succeed
+    await login(app, user.email, 'BrandNewSecure2026!Pass').expect(200);
+  });
+});

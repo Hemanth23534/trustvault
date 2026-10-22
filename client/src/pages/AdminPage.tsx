@@ -273,7 +273,7 @@ export function AdminPage(): JSX.Element {
   const totalAuditPages = Math.ceil(activityTotal / PAGE_SIZE) || 1;
 
   return (
-    <div className="stack">
+    <div className="stack page-enter">
       <section className="page-intro">
         <div>
           <p className="eyebrow">Administration</p>

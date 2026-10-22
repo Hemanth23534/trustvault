@@ -1,5 +1,5 @@
-import { useEffect, useState, type JSX } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useEffect, useRef, useState, type JSX } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { minutesUntil, roleLabel } from '../../lib/format';
 import type { UserRole } from '../../lib/auth';
@@ -15,6 +15,7 @@ import {
   IconSettings,
   IconShield,
   IconUpload,
+  IconUser,
   IconUsers,
 } from '../ui/Icons';
 
@@ -47,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
     requireCompany: true,
   },
   { to: '/admin', label: 'Administration', icon: <IconShield />, roles: ['admin'] },
+  { to: '/profile', label: 'Profile & Settings', icon: <IconUser /> },
 ];
 
 function pageTitle(pathname: string): string {
@@ -59,6 +61,7 @@ function pageTitle(pathname: string): string {
   if (pathname === '/workspace/members') return 'Members & invitations';
   if (pathname === '/workspace/settings') return 'Workspace settings';
   if (pathname === '/admin') return 'Administration';
+  if (pathname === '/profile') return 'Profile & settings';
   return 'TrustVault';
 }
 
@@ -76,11 +79,28 @@ export function AppShell(): JSX.Element {
   const { user, session, logout } = useAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMobileOpen(false);
+    setUserMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent): void {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    }
+    if (userMenuOpen) {
+      window.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [userMenuOpen]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -152,17 +172,19 @@ export function AppShell(): JSX.Element {
           </div>
 
           {user !== null ? (
-            <div className="sidebar-user">
-              <div className="avatar" aria-hidden="true">
-                {(user.displayName ?? user.email).slice(0, 1).toUpperCase()}
-              </div>
-              <div className="sidebar-user-info">
-                <strong>{user.displayName ?? user.email}</strong>
-                <span className="muted small">
-                  {roleLabel(user.role)}
-                  {user.companyName ? ` • ${user.companyName}` : ' • Personal'}
-                </span>
-              </div>
+            <div className="sidebar-user-wrap">
+              <Link to="/profile" className="sidebar-user" title="View Profile & Settings">
+                <div className="avatar" aria-hidden="true">
+                  {(user.displayName ?? user.email).slice(0, 1).toUpperCase()}
+                </div>
+                <div className="sidebar-user-info">
+                  <strong>{user.displayName ?? user.email}</strong>
+                  <span className="muted small">
+                    {roleLabel(user.role)}
+                    {user.companyName ? ` • ${user.companyName}` : ' • Personal'}
+                  </span>
+                </div>
+              </Link>
               <button
                 className="icon-button"
                 type="button"
@@ -202,11 +224,71 @@ export function AppShell(): JSX.Element {
             </span>
             <h1>{pageTitle(location.pathname)}</h1>
           </div>
-          <div className="topbar-account">
-            <span className="muted small">{user?.email}</span>
-            <button className="button button-ghost button-sm" type="button" onClick={() => void logout()}>
-              Sign out
+          <div className="topbar-account" ref={userMenuRef}>
+            <button
+              type="button"
+              className="topbar-user-btn"
+              onClick={() => setUserMenuOpen((prev) => !prev)}
+              aria-expanded={userMenuOpen}
+              aria-label="User account menu"
+            >
+              <div className="avatar avatar-sm" aria-hidden="true">
+                {(user?.displayName ?? user?.email ?? 'U').slice(0, 1).toUpperCase()}
+              </div>
+              <div className="topbar-user-text">
+                <span className="topbar-user-name">{user?.displayName ?? user?.email}</span>
+                <span className="topbar-user-role muted small">{roleLabel(user?.role ?? 'viewer')}</span>
+              </div>
             </button>
+
+            {userMenuOpen ? (
+              <div className="user-dropdown-menu" role="menu">
+                <div className="user-dropdown-header">
+                  <strong>{user?.displayName ?? 'My Account'}</strong>
+                  <span className="muted small">{user?.email}</span>
+                  <span
+                    className={`badge ${user?.role === 'owner' ? 'badge-role-owner' : user?.role === 'admin' ? 'badge-info' : 'badge-neutral'}`}
+                    style={{ marginTop: '0.4rem', alignSelf: 'flex-start' }}
+                  >
+                    {roleLabel(user?.role ?? 'viewer')}
+                  </span>
+                </div>
+                <div className="user-dropdown-divider" />
+                <Link
+                  to="/profile"
+                  className="user-dropdown-item"
+                  role="menuitem"
+                  onClick={() => setUserMenuOpen(false)}
+                >
+                  <IconUser width={16} height={16} />
+                  <span>Profile & Settings</span>
+                </Link>
+                {user?.role === 'owner' && user.companyId ? (
+                  <Link
+                    to="/workspace/settings"
+                    className="user-dropdown-item"
+                    role="menuitem"
+                    onClick={() => setUserMenuOpen(false)}
+                  >
+                    <IconSettings width={16} height={16} />
+                    <span>Workspace Settings</span>
+                  </Link>
+                ) : null}
+                <div className="user-dropdown-divider" />
+                <button
+                  type="button"
+                  className="user-dropdown-item user-dropdown-item-danger"
+                  role="menuitem"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    void logout();
+                  }}
+                >
+                  <IconLogout width={16} height={16} />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            ) : null}
           </div>
         </header>
 

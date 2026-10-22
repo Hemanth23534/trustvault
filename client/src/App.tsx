@@ -11,6 +11,7 @@ import { DocumentsPage } from './pages/DocumentsPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { RegisterPage } from './pages/RegisterPage';
 import { UploadPage } from './pages/UploadPage';
 import { WorkspaceMembersPage } from './pages/WorkspaceMembersPage';
@@ -44,6 +45,7 @@ export function App(): JSX.Element {
               <Route element={<RequireRole roles={['admin']} />}>
                 <Route path="admin" element={<AdminPage />} />
               </Route>
+              <Route path="profile" element={<ProfilePage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Route>

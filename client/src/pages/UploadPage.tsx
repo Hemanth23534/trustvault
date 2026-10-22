@@ -15,7 +15,7 @@ export function UploadPage(): JSX.Element {
   }
 
   return (
-    <div className="stack">
+    <div className="stack page-enter">
       <section className="page-intro">
         <div>
           <p className="eyebrow">New document</p>

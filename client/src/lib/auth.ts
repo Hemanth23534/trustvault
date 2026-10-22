@@ -109,6 +109,35 @@ export function logout(csrfToken: string): Promise<ApiResult<null>> {
   });
 }
 
+export function updateProfile(
+  displayName: string,
+  csrfToken: string,
+): Promise<ApiResult<{ user: AuthUser }>> {
+  return request<{ user: AuthUser }>(`${API_PREFIX}/auth/profile`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: JSON.stringify({ displayName }),
+  });
+}
+
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+  csrfToken: string,
+): Promise<ApiResult<{ success: boolean; message: string }>> {
+  return request<{ success: boolean; message: string }>(`${API_PREFIX}/auth/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
 export function fetchAuditLogs(limit = 25, offset = 0): Promise<ApiResult<AuditPage>> {
   return request<AuditPage>(`${API_PREFIX}/admin/audit-logs?limit=${limit}&offset=${offset}`);
 }

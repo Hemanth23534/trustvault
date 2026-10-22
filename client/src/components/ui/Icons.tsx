@@ -201,3 +201,29 @@ export function IconBuilding(props: IconProps): JSX.Element {
     </Icon>
   );
 }
+
+export function IconUser(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="7" r="4" />
+      <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
+    </Icon>
+  );
+}
+
+export function IconKey(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <circle cx="7.5" cy="15.5" r="4.5" />
+      <path d="m10.7 12.3 8.3-8.3M15.5 4l3.5 3.5M14 8l2 2" />
+    </Icon>
+  );
+}
+
+export function IconCheck(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <path d="m5 12 5 5L20 7" />
+    </Icon>
+  );
+}

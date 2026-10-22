@@ -51,7 +51,7 @@ export function HistoryPage(): JSX.Element {
   const total = page?.pagination.total ?? 0;
 
   return (
-    <div className="stack">
+    <div className="stack page-enter">
       <section className="page-intro">
         <div>
           <p className="eyebrow">Audit</p>

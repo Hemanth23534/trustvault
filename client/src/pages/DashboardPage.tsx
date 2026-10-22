@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import { Link } from 'react-router-dom';
 import { DocumentTable } from '../components/documents/DocumentTable';
-import { IconArrowRight, IconFile, IconShare, IconUpload } from '../components/ui/Icons';
+import { IconActivity, IconArrowRight, IconFile, IconShare, IconShield, IconUpload } from '../components/ui/Icons';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
 import { useAuth } from '../context/AuthContext';
 import { extractErrorMessage } from '../lib/auth';
@@ -14,6 +14,37 @@ import {
   type DocumentItem,
   type DocumentStats,
 } from '../lib/documents';
+
+function AnimatedNumber({ value }: { value: number }): JSX.Element {
+  const [display, setDisplay] = useState(value);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setDisplay(value);
+      return;
+    }
+
+    let start = 0;
+    const duration = 650;
+    const startTime = performance.now();
+
+    function step(currentTime: number) {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      const current = Math.round(start + (value - start) * ease);
+      setDisplay(current);
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      }
+    }
+
+    const raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+
+  return <span>{display}</span>;
+}
 
 export function DashboardPage(): JSX.Element {
   const { user } = useAuth();
@@ -87,7 +118,7 @@ export function DashboardPage(): JSX.Element {
   }
 
   return (
-    <div className="stack">
+    <div className="stack page-enter">
       <section className="page-intro">
         <div>
           <p className="eyebrow">{isViewer ? 'Viewer workspace' : 'Owner workspace'}</p>
@@ -124,8 +155,13 @@ export function DashboardPage(): JSX.Element {
 
       <section className="stat-grid" aria-label="Document statistics">
         <article className="stat-card">
-          <span className="stat-label">{isViewer ? 'Shared with you' : 'Accessible documents'}</span>
-          <strong className="stat-value">{stats?.totalDocuments ?? 0}</strong>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="stat-label">{isViewer ? 'Shared with you' : 'Accessible documents'}</span>
+            <IconFile width={16} height={16} style={{ color: 'var(--accent-cyan)', opacity: 0.85 }} />
+          </div>
+          <strong className="stat-value">
+            <AnimatedNumber value={stats?.totalDocuments ?? 0} />
+          </strong>
           <span className="stat-hint">
             {isViewer
               ? 'Explicit grants from owners'
@@ -134,14 +170,22 @@ export function DashboardPage(): JSX.Element {
         </article>
 
         <article className="stat-card">
-          <span className="stat-label">Storage used</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="stat-label">Storage used</span>
+            <IconUpload width={16} height={16} style={{ color: 'var(--accent-teal)', opacity: 0.85 }} />
+          </div>
           <strong className="stat-value">{formatBytes(stats?.totalBytes ?? 0)}</strong>
           <span className="stat-hint">Sum of documents you can access</span>
         </article>
 
         <article className="stat-card">
-          <span className="stat-label">Categories</span>
-          <strong className="stat-value">{stats?.byCategory.length ?? 0}</strong>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="stat-label">Categories</span>
+            <IconShield width={16} height={16} style={{ color: 'var(--accent-indigo)', opacity: 0.85 }} />
+          </div>
+          <strong className="stat-value">
+            <AnimatedNumber value={stats?.byCategory.length ?? 0} />
+          </strong>
           <span className="stat-hint">
             {stats !== null && stats.byCategory.length > 0
               ? stats.byCategory.map((entry) => entry.category).join(', ')
@@ -151,7 +195,10 @@ export function DashboardPage(): JSX.Element {
 
         {user?.role === 'admin' ? (
           <article className="stat-card stat-card-accent">
-            <span className="stat-label">Administration</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="stat-label">Administration</span>
+              <IconActivity width={16} height={16} style={{ color: 'var(--accent-cyan)' }} />
+            </div>
             <strong className="stat-value">Platform</strong>
             <Link className="stat-link" to="/admin">
               Open activity dashboard <IconArrowRight width={14} height={14} />
@@ -159,7 +206,10 @@ export function DashboardPage(): JSX.Element {
           </article>
         ) : (
           <article className="stat-card">
-            <span className="stat-label">Access model</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="stat-label">Access model</span>
+              <IconShield width={16} height={16} style={{ color: 'var(--accent-cyan)', opacity: 0.85 }} />
+            </div>
             <strong className="stat-value">Owner + grants</strong>
             <span className="stat-hint">No public links exist for any document</span>
           </article>
