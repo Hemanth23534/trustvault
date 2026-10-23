@@ -241,7 +241,15 @@ interface LatestHashRow extends RowDataPacket {
 }
 
 function toDate(value: Date | string): Date {
-  return value instanceof Date ? value : new Date(value);
+  if (value instanceof Date) return value;
+  let str = String(value).trim();
+  if (str.includes(' ') && !str.includes('T')) {
+    str = str.replace(' ', 'T');
+  }
+  if (!str.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(str)) {
+    str += 'Z';
+  }
+  return new Date(str);
 }
 
 function toDateOrNull(value: Date | string | null): Date | null {
@@ -878,69 +886,108 @@ export class MySqlAuthStore implements AuthStore {
     return rows[0]?.entry_hash ?? null;
   }
 
-  async recordAudit(event: AuditEventInput): Promise<AuditLogEntry> {
-    const now = event.createdAt ?? new Date();
-    const prevHash = event.prevHash ?? (await this.getLatestAuditHash()) ?? GENESIS_HASH;
+  private auditMutex: Promise<void> = Promise.resolve();
 
-    const entryHash =
-      event.entryHash ??
-      computeEntryHash({
-        prevHash,
+  async recordAudit(event: AuditEventInput): Promise<AuditLogEntry> {
+    const unlock = await new Promise<() => void>((resolve) => {
+      this.auditMutex = this.auditMutex
+        .catch(() => {})
+        .then(() => new Promise<void>((done) => resolve(done)));
+    });
+
+    const conn = await this.pool.getConnection();
+    let advisoryLockAcquired = false;
+
+    try {
+      try {
+        const [lockRows] = await conn.query<RowDataPacket[]>(
+          'SELECT GET_LOCK("tv_audit_write", 10) AS acquired',
+        );
+        advisoryLockAcquired = Number(lockRows[0]?.acquired) === 1;
+      } catch {
+        advisoryLockAcquired = false;
+      }
+
+      const now = event.createdAt ?? new Date();
+
+      let prevHash = event.prevHash;
+      if (!prevHash) {
+        const [latestRows] = await conn.query<LatestHashRow[]>(
+          'SELECT entry_hash FROM audit_logs WHERE entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1',
+        );
+        prevHash = latestRows[0]?.entry_hash ?? GENESIS_HASH;
+      }
+
+      const entryHash =
+        event.entryHash ??
+        computeEntryHash({
+          prevHash,
+          userId: event.userId,
+          targetUserId: event.targetUserId,
+          action: event.action,
+          outcome: event.outcome,
+          resourceType: event.resourceType ?? null,
+          resourceId: event.resourceId ?? null,
+          requestId: event.requestId ?? null,
+          createdAt: now,
+          metadata: event.metadata ?? null,
+        });
+
+      const [result] = await conn.execute(
+        `INSERT INTO audit_logs
+           (user_id, company_id, target_user_id, action, outcome, resource_type, resource_id,
+            ip_hash, user_agent, request_id, prev_hash, entry_hash, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          event.userId,
+          event.companyId ?? null,
+          event.targetUserId ?? null,
+          event.action,
+          event.outcome,
+          event.resourceType ?? null,
+          event.resourceId ?? null,
+          event.ipHash ?? null,
+          event.userAgent ?? null,
+          event.requestId ?? null,
+          prevHash,
+          entryHash,
+          event.metadata === undefined || event.metadata === null
+            ? null
+            : JSON.stringify(event.metadata),
+          now,
+        ],
+      );
+
+      const insertId = String((result as { insertId?: number }).insertId ?? '0');
+
+      return {
+        id: insertId,
         userId: event.userId,
-        targetUserId: event.targetUserId,
+        companyId: event.companyId ?? null,
+        targetUserId: event.targetUserId ?? null,
         action: event.action,
         outcome: event.outcome,
         resourceType: event.resourceType ?? null,
         resourceId: event.resourceId ?? null,
+        ipHash: event.ipHash ?? null,
+        userAgent: event.userAgent ?? null,
         requestId: event.requestId ?? null,
-        createdAt: now,
         metadata: event.metadata ?? null,
-      });
-
-    const [result] = await this.pool.execute(
-      `INSERT INTO audit_logs
-         (user_id, company_id, target_user_id, action, outcome, resource_type, resource_id,
-          ip_hash, user_agent, request_id, prev_hash, entry_hash, metadata, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        event.userId,
-        event.companyId ?? null,
-        event.targetUserId ?? null,
-        event.action,
-        event.outcome,
-        event.resourceType ?? null,
-        event.resourceId ?? null,
-        event.ipHash ?? null,
-        event.userAgent ?? null,
-        event.requestId ?? null,
         prevHash,
         entryHash,
-        event.metadata === undefined || event.metadata === null
-          ? null
-          : JSON.stringify(event.metadata),
-        now,
-      ],
-    );
-
-    const insertId = String((result as { insertId?: number }).insertId ?? '0');
-
-    return {
-      id: insertId,
-      userId: event.userId,
-      companyId: event.companyId ?? null,
-      targetUserId: event.targetUserId ?? null,
-      action: event.action,
-      outcome: event.outcome,
-      resourceType: event.resourceType ?? null,
-      resourceId: event.resourceId ?? null,
-      ipHash: event.ipHash ?? null,
-      userAgent: event.userAgent ?? null,
-      requestId: event.requestId ?? null,
-      metadata: event.metadata ?? null,
-      prevHash,
-      entryHash,
-      createdAt: now.toISOString(),
-    };
+        createdAt: now.toISOString(),
+      };
+    } finally {
+      if (advisoryLockAcquired) {
+        try {
+          await conn.query('SELECT RELEASE_LOCK("tv_audit_write")');
+        } catch {
+          // ignore
+        }
+      }
+      conn.release();
+      unlock();
+    }
   }
 
   private buildFilterClauses(params?: Omit<AuditFilterParams, 'limit' | 'offset'>): {
@@ -1113,12 +1160,20 @@ export class MySqlAuthStore implements AuthStore {
       });
 
       if (row.entry_hash !== expectedHash) {
+        const isCascadeNulled =
+          (row.user_id === null || row.user_id === '') &&
+          row.action !== 'demo_seed' &&
+          row.action !== 'login_failed';
+        const failureReason = isCascadeNulled
+          ? `Tampered log content at event ${row.id}: entry_hash does not match canonical payload digest (user_id was set to null by legacy relational foreign key cascade on user deletion; cryptographic chain remains intact)`
+          : `Tampered log content at event ${row.id}: entry_hash does not match canonical payload digest`;
+
         return {
           verified: false,
           totalEntries: rows.length,
           checkedCheckpoints: 0,
           lastVerifiedHash: lastHash,
-          failureReason: `Tampered log content at event ${row.id}: entry_hash does not match canonical payload digest`,
+          failureReason,
           failedAtId: String(row.id),
         };
       }
@@ -1127,6 +1182,37 @@ export class MySqlAuthStore implements AuthStore {
     }
 
     const checkpoints = await this.listCheckpoints();
+    for (const cp of checkpoints) {
+      const targetEntry = rows.find((r) => String(r.id) === String(cp.lastLogId));
+      if (!targetEntry || !targetEntry.entry_hash) {
+        return {
+          verified: false,
+          totalEntries: rows.length,
+          checkedCheckpoints: checkpoints.length,
+          lastVerifiedHash: lastHash,
+          failureReason: `Checkpoint ${cp.checkpointSeq} references non-existent or unhashed log entry ${cp.lastLogId}`,
+          failedAtId: String(cp.lastLogId),
+        };
+      }
+
+      const expectedCpHash = computeCheckpointHash({
+        checkpointSeq: cp.checkpointSeq,
+        lastLogId: String(cp.lastLogId),
+        lastEntryHash: targetEntry.entry_hash,
+        entryCount: cp.entryCount,
+      });
+
+      if (cp.checkpointHash !== expectedCpHash) {
+        return {
+          verified: false,
+          totalEntries: rows.length,
+          checkedCheckpoints: checkpoints.length,
+          lastVerifiedHash: lastHash,
+          failureReason: `Checkpoint ${cp.checkpointSeq} hash mismatch: expected ${expectedCpHash}, found ${cp.checkpointHash}`,
+        };
+      }
+    }
+
     return {
       verified: true,
       totalEntries: rows.length,

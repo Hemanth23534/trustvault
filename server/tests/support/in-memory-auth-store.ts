@@ -406,46 +406,58 @@ export class InMemoryAuthStore implements AuthStore {
     return last?.entryHash ?? null;
   }
 
-  async recordAudit(event: AuditEventInput): Promise<AuditLogEntry> {
-    this.auditSequence += 1;
-    const now = event.createdAt ?? new Date();
-    const prevHash = event.prevHash ?? (await this.getLatestAuditHash()) ?? GENESIS_HASH;
+  private auditMutex: Promise<void> = Promise.resolve();
 
-    const entryHash =
-      event.entryHash ??
-      computeEntryHash({
-        prevHash,
+  async recordAudit(event: AuditEventInput): Promise<AuditLogEntry> {
+    const unlock = await new Promise<() => void>((resolve) => {
+      this.auditMutex = this.auditMutex
+        .catch(() => {})
+        .then(() => new Promise<void>((done) => resolve(done)));
+    });
+
+    try {
+      this.auditSequence += 1;
+      const now = event.createdAt ?? new Date();
+      const prevHash = event.prevHash ?? (await this.getLatestAuditHash()) ?? GENESIS_HASH;
+
+      const entryHash =
+        event.entryHash ??
+        computeEntryHash({
+          prevHash,
+          userId: event.userId,
+          targetUserId: event.targetUserId ?? null,
+          action: event.action,
+          outcome: event.outcome,
+          resourceType: event.resourceType ?? null,
+          resourceId: event.resourceId ?? null,
+          requestId: event.requestId ?? null,
+          createdAt: now,
+          metadata: event.metadata ?? null,
+        });
+
+      const entry: AuditLogEntry = {
+        id: String(this.auditSequence),
         userId: event.userId,
+        companyId: event.companyId ?? null,
         targetUserId: event.targetUserId ?? null,
         action: event.action,
         outcome: event.outcome,
         resourceType: event.resourceType ?? null,
         resourceId: event.resourceId ?? null,
+        ipHash: event.ipHash ?? null,
+        userAgent: event.userAgent ?? null,
         requestId: event.requestId ?? null,
-        createdAt: now,
         metadata: event.metadata ?? null,
-      });
+        prevHash,
+        entryHash,
+        createdAt: now.toISOString(),
+      };
 
-    const entry: AuditLogEntry = {
-      id: String(this.auditSequence),
-      userId: event.userId,
-      companyId: event.companyId ?? null,
-      targetUserId: event.targetUserId ?? null,
-      action: event.action,
-      outcome: event.outcome,
-      resourceType: event.resourceType ?? null,
-      resourceId: event.resourceId ?? null,
-      ipHash: event.ipHash ?? null,
-      userAgent: event.userAgent ?? null,
-      requestId: event.requestId ?? null,
-      metadata: event.metadata ?? null,
-      prevHash,
-      entryHash,
-      createdAt: now.toISOString(),
-    };
-
-    this.auditEvents.push(entry);
-    return entry;
+      this.auditEvents.push(entry);
+      return entry;
+    } finally {
+      unlock();
+    }
   }
 
   private filterAuditEvents(
@@ -633,6 +645,11 @@ export class InMemoryAuthStore implements AuthStore {
   simulateTamper(id: string, patch: Partial<AuditLogEntry>): void {
     const entry = this.auditEvents.find((e) => e.id === id);
     if (entry) Object.assign(entry, patch);
+  }
+
+  simulateCheckpointTamper(seq: number, patch: Partial<CheckpointRecord>): void {
+    const cp = this.checkpoints.find((c) => c.checkpointSeq === seq);
+    if (cp) Object.assign(cp, patch);
   }
 
   /**

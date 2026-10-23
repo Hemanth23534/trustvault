@@ -477,4 +477,95 @@ describe('TrustVault Audit Trail and Administrator Governance', () => {
       .send({ isActive: true })
       .expect(403);
   });
+
+  it('handles high-concurrency audit writes without hash chain forks or broken links', async () => {
+    const stack = buildStack();
+    const user = await createUser(stack, { email: 'concurrency@trustvault.local', role: 'owner' });
+
+    // Spawn 20 simultaneous concurrent audit writes
+    const writes = Array.from({ length: 20 }, (_, i) =>
+      stack.authStore.recordAudit({
+        userId: user.id,
+        action: `concurrent.event.${i}`,
+        outcome: 'success',
+        metadata: { index: i },
+      }),
+    );
+
+    const results = await Promise.all(writes);
+    expect(results).toHaveLength(20);
+
+    // Verify all entries form a 100% contiguous SHA-256 chain
+    const verification = await stack.authStore.verifyAuditIntegrity();
+    expect(verification.verified).toBe(true);
+    expect(verification.failureReason).toBeUndefined();
+
+    // Verify each row's prevHash matches exactly the predecessor's entryHash
+    const logs = await stack.authStore.listAuditLogs({ limit: 100, offset: 0 });
+    // listAuditLogs returns DESC; sort ASC to trace the chain
+    const sorted = [...logs].sort((a, b) => Number(a.id) - Number(b.id));
+    for (let i = 1; i < sorted.length; i++) {
+      expect(sorted[i]!.prevHash).toBe(sorted[i - 1]!.entryHash);
+    }
+  });
+
+  it('detects checkpoint tampering when checkpoint hash is modified', async () => {
+    const stack = buildStack();
+    const user = await createUser(stack, { email: 'checkpoint-test@trustvault.local', role: 'owner' });
+
+    // Seed an audit event so there is an entry to checkpoint
+    await stack.authStore.recordAudit({
+      userId: user.id,
+      action: 'checkpoint.initial',
+      outcome: 'success',
+    });
+
+    // Create a checkpoint
+    const cp = await stack.authStore.createCheckpoint();
+    expect(cp).not.toBeNull();
+    expect(cp?.checkpointSeq).toBe(1);
+
+    // Pre-tamper verify passes
+    const beforeVerify = await stack.authStore.verifyAuditIntegrity();
+    expect(beforeVerify.verified).toBe(true);
+
+    // Tamper with the checkpoint's stored hash
+    stack.authStore.simulateCheckpointTamper(1, {
+      checkpointHash: 'a'.repeat(64),
+    });
+
+    // Verification must catch the checkpoint hash mismatch
+    const afterVerify = await stack.authStore.verifyAuditIntegrity();
+    expect(afterVerify.verified).toBe(false);
+    expect(afterVerify.failureReason).toContain('Checkpoint 1 hash mismatch');
+  });
+
+  it('preserves immutable audit history with original user UUIDs even when user accounts are altered', async () => {
+    const stack = buildStack();
+    const owner = await createUser(stack, { email: 'immutable@trustvault.local', role: 'owner' });
+    const ownerSession = await login(stack, owner.email);
+
+    // Record an action
+    await request(stack.app)
+      .post('/api/documents')
+      .set('Cookie', ownerSession.cookie)
+      .set('x-csrf-token', ownerSession.csrf)
+      .attach('file', PDF_CONTENT, 'immutability-test.pdf')
+      .expect(201);
+
+    // Find the audit entry for upload
+    const uploadAudit = stack.authStore.auditEvents.find((e) => e.action === 'document.uploaded');
+    expect(uploadAudit).toBeDefined();
+    expect(uploadAudit?.userId).toBe(owner.id);
+
+    // Deactivate user account
+    await stack.authStore.setUserActive(owner.id, false);
+
+    // Verify the historical audit record still retains owner.id and ledger passes verification
+    const reloadedAudit = stack.authStore.auditEvents.find((e) => e.action === 'document.uploaded');
+    expect(reloadedAudit?.userId).toBe(owner.id);
+
+    const integrity = await stack.authStore.verifyAuditIntegrity();
+    expect(integrity.verified).toBe(true);
+  });
 });

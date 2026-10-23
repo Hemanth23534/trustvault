@@ -219,6 +219,17 @@ export async function runMigrations(options: MigrationRunOptions): Promise<Migra
               executed += 1;
               continue;
             }
+            if (
+              err.code === 'ER_CANT_DROP_FIELD_OR_KEY' ||
+              err.code === 'ER_KEY_DOES_NOT_EXITS' ||
+              err.errno === 1091 ||
+              err.message?.includes("Can't DROP") ||
+              err.message?.includes('check that column/key exists')
+            ) {
+              log(`[warning] Key or constraint does not exist, skipping drop: ${err.message ?? 'missing key'}`);
+              executed += 1;
+              continue;
+            }
             throw stmtError;
           }
           executed += 1;

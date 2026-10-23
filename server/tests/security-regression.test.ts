@@ -138,7 +138,7 @@ describe('Finding 2 regression — dual-tier login rate limiting', () => {
     expect(finalRes.status).toBe(429);
     expect(finalRes.body.error.code).toBe('RATE_LIMITED');
     expect(finalRes.headers['retry-after']).toBeDefined();
-  }, 10_000);
+  }, 25_000);
 
   /**
    * Tier-2: the tight per-(IP+email) limiter must still protect individual

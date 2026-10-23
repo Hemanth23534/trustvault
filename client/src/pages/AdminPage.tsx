@@ -381,7 +381,7 @@ export function AdminPage(): JSX.Element {
           </div>
         </header>
 
-        <div className="callout callout-subtle">
+        <div className={`callout ${integrity?.verified === false ? 'callout-danger' : 'callout-subtle'}`}>
           <div className="split">
             <div>
               <p className="small">
@@ -389,7 +389,7 @@ export function AdminPage(): JSX.Element {
                 {integrity === null ? (
                   <span className="muted">Not checked this session</span>
                 ) : integrity.verified ? (
-                  <span className="tag tag-active">Verified Intact</span>
+                  <span className="tag tag-active">Verified Intact ({integrity.totalEntries} entries, {integrity.checkedCheckpoints} checkpoints)</span>
                 ) : (
                   <span className="tag tag-danger">Tamper Detected</span>
                 )}
@@ -398,6 +398,20 @@ export function AdminPage(): JSX.Element {
                 <p className="mono small muted" style={{ marginTop: '0.25rem' }}>
                   Anchor Hash: {integrity.lastVerifiedHash.slice(0, 24)}…
                 </p>
+              ) : null}
+              {integrity?.verified === false ? (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                  {integrity.failedAtId ? (
+                    <p style={{ margin: '0.2rem 0', fontWeight: 600 }}>
+                      Failed Event ID: <span className="mono">#{integrity.failedAtId}</span>
+                    </p>
+                  ) : null}
+                  {integrity.failureReason ? (
+                    <p style={{ margin: '0.2rem 0', color: 'var(--color-danger, #ef4444)' }}>
+                      <strong>Failure Reason: </strong>{integrity.failureReason}
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
             </div>
             <p className="small muted" style={{ maxWidth: '440px' }}>
