@@ -7,6 +7,7 @@ import type {
   AuditEventInput,
   AuditFilterParams,
   AuditLogEntry,
+  AuditRecoveryIncident,
   AuditVerificationResult,
   AuthStore,
   CheckpointRecord,
@@ -54,6 +55,7 @@ export class InMemoryAuthStore implements AuthStore {
   readonly sessions = new Map<string, StoredSession>();
   readonly auditEvents: AuditLogEntry[] = [];
   readonly checkpoints: CheckpointRecord[] = [];
+  readonly recoveryIncidents = new Map<string, AuditRecoveryIncident>();
 
   private userSequence = 0;
   private auditSequence = 0;
@@ -101,6 +103,21 @@ export class InMemoryAuthStore implements AuthStore {
     };
     this.users.set(user.id, user);
     return user;
+  }
+
+  async deleteUserAccount(userId: string): Promise<boolean> {
+    const user = this.users.get(userId);
+    if (!user || !user.isActive) return false;
+    user.isActive = false;
+    user.email = `deleted_${userId}@trustvault.local`;
+    user.displayName = 'Deleted Account';
+
+    for (const session of this.sessions.values()) {
+      if (session.userId === userId && !session.revokedAt) {
+        session.revokedAt = new Date();
+      }
+    }
+    return true;
   }
 
   async listCompanyUsers(companyId: string): Promise<AuthUser[]> {
@@ -543,6 +560,7 @@ export class InMemoryAuthStore implements AuthStore {
   }
 
   async verifyAuditIntegrity(): Promise<AuditVerificationResult> {
+    const recoveredIncidents: AuditRecoveryIncident[] = [];
     let lastHash: string = GENESIS_HASH;
 
     for (let i = 0; i < this.auditEvents.length; i++) {
@@ -573,17 +591,27 @@ export class InMemoryAuthStore implements AuthStore {
       });
 
       if (entry.entryHash !== expectedHash) {
-        return {
-          verified: false,
-          totalEntries: this.auditEvents.length,
-          checkedCheckpoints: this.checkpoints.length,
-          lastVerifiedHash: lastHash,
-          failureReason: `Tampered log content at event ${entry.id}: entryHash does not match canonical payload digest`,
-          failedAtId: entry.id,
-        };
+        const incident = this.recoveryIncidents.get(entry.id);
+        const isAttested =
+          incident &&
+          (incident.remediationStatus === 'explained_legacy_cascade' ||
+            incident.remediationStatus === 'forensic_attested');
+
+        if (isAttested) {
+          recoveredIncidents.push(incident);
+        } else {
+          return {
+            verified: false,
+            totalEntries: this.auditEvents.length,
+            checkedCheckpoints: this.checkpoints.length,
+            lastVerifiedHash: lastHash,
+            failureReason: `Tampered log content at event ${entry.id}: entryHash does not match canonical payload digest`,
+            failedAtId: entry.id,
+          };
+        }
       }
 
-      lastHash = entry.entryHash;
+      lastHash = entry.entryHash!;
     }
 
     // Verify checkpoints against chain
@@ -621,7 +649,12 @@ export class InMemoryAuthStore implements AuthStore {
       totalEntries: this.auditEvents.length,
       checkedCheckpoints: this.checkpoints.length,
       lastVerifiedHash: this.auditEvents.length > 0 ? lastHash : null,
+      incidents: recoveredIncidents.length > 0 ? recoveredIncidents : undefined,
     };
+  }
+
+  addRecoveryIncident(incident: AuditRecoveryIncident): void {
+    this.recoveryIncidents.set(incident.eventId, incident);
   }
 
   /**

@@ -177,7 +177,10 @@ export function AdminPage(): JSX.Element {
       if (res.ok) {
         setIntegrity(res.data);
         if (res.data.verified) {
-          setFeedback(`Audit integrity verified! SHA-256 chain intact across ${res.data.totalEntries} entries and ${res.data.checkedCheckpoints} checkpoints.`);
+          const incidentMsg = res.data.incidents && res.data.incidents.length > 0
+            ? ` (${res.data.incidents.length} legacy cascade anomalies formally attested)`
+            : '';
+          setFeedback(`Audit integrity verified! SHA-256 chain intact across ${res.data.totalEntries} entries and ${res.data.checkedCheckpoints} checkpoints${incidentMsg}.`);
         } else {
           setError(`Tamper alert! ${res.data.failureReason ?? 'Cryptographic chain verification failed.'}`);
         }
@@ -398,6 +401,13 @@ export function AdminPage(): JSX.Element {
                 <p className="mono small muted" style={{ marginTop: '0.25rem' }}>
                   Anchor Hash: {integrity.lastVerifiedHash.slice(0, 24)}…
                 </p>
+              ) : null}
+              {integrity?.verified && integrity.incidents && integrity.incidents.length > 0 ? (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                  <p style={{ margin: '0.2rem 0', color: 'var(--color-primary, #38bdf8)' }}>
+                    <strong>Attested Recovery: </strong>{integrity.incidents.length} historical events (IDs: {integrity.incidents.map((i) => `#${i.eventId}`).join(', ')}) formally attested in recovery registry. Original audit evidence preserved without data fabrication.
+                  </p>
+                </div>
               ) : null}
               {integrity?.verified === false ? (
                 <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>

@@ -55,6 +55,15 @@ export interface AuditFilterParams {
   offset?: number | undefined;
 }
 
+export interface AuditRecoveryIncident {
+  eventId: string;
+  incidentType: string;
+  action: string;
+  corruptedField: string;
+  remediationStatus: string;
+  forensicNote: string;
+}
+
 export interface AuditVerificationResult {
   verified: boolean;
   totalEntries: number;
@@ -62,6 +71,7 @@ export interface AuditVerificationResult {
   lastVerifiedHash: string | null;
   failureReason?: string;
   failedAtId?: string;
+  incidents?: AuditRecoveryIncident[];
 }
 
 export function fetchAdminOverview(): Promise<ApiResult<{ overview: AdminOverview }>> {

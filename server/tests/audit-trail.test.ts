@@ -568,4 +568,107 @@ describe('TrustVault Audit Trail and Administrator Governance', () => {
     const integrity = await stack.authStore.verifyAuditIntegrity();
     expect(integrity.verified).toBe(true);
   });
+
+  it('ensures user deletion (soft delete) deactivates user and revokes sessions while preserving historical audit payloads intact', async () => {
+    const stack = buildStack();
+    const user = await createUser(stack, { email: 'softdelete-audit@trustvault.local', role: 'owner' });
+    const session = await login(stack, user.email);
+
+    // Record an audit action
+    await request(stack.app)
+      .post('/api/documents')
+      .set('Cookie', session.cookie)
+      .set('x-csrf-token', session.csrf)
+      .attach('file', PDF_CONTENT, 'softdelete-contract.pdf')
+      .expect(201);
+
+    const uploadEntry = stack.authStore.auditEvents.find((e) => e.action === 'document.uploaded');
+    expect(uploadEntry).toBeDefined();
+    expect(uploadEntry?.userId).toBe(user.id);
+
+    // Initial audit integrity passes
+    const beforeDelete = await stack.authStore.verifyAuditIntegrity();
+    expect(beforeDelete.verified).toBe(true);
+
+    // Perform deletion-safe user account deletion
+    const deleted = await stack.authStore.deleteUserAccount(user.id);
+    expect(deleted).toBe(true);
+
+    // Account is deactivated, PII anonymized
+    const foundUser = await stack.authStore.findUserById(user.id);
+    expect(foundUser?.isActive).toBe(false);
+    expect(foundUser?.email).toContain(`deleted_${user.id}`);
+    expect(foundUser?.displayName).toBe('Deleted Account');
+
+    // Sessions are revoked
+    const sessions = stack.authStore.sessionsFor(user.id);
+    expect(sessions.every((s) => s.revokedAt !== null)).toBe(true);
+
+    // Crucially: historical audit log is unchanged - original userId preserved!
+    const preservedEntry = stack.authStore.auditEvents.find((e) => e.action === 'document.uploaded');
+    expect(preservedEntry?.userId).toBe(user.id);
+
+    // Audit integrity check succeeds with zero tampering
+    const afterDelete = await stack.authStore.verifyAuditIntegrity();
+    expect(afterDelete.verified).toBe(true);
+    expect(afterDelete.failureReason).toBeUndefined();
+  });
+
+  it('attests and surfaces recovery incidents for legacy cascade anomalies while strictly rejecting unexplained tampering', async () => {
+    const stack = buildStack();
+    const admin = await createUser(stack, { email: 'admin-recovery@trustvault.local', role: 'admin' });
+    const user = await createUser(stack, { email: 'cascade-victim@trustvault.local', role: 'owner' });
+
+    // Seed events
+    await stack.authStore.recordAudit({
+      userId: user.id,
+      action: 'user_registered',
+      outcome: 'success',
+    });
+    await stack.authStore.recordAudit({
+      userId: user.id,
+      action: 'logout',
+      outcome: 'success',
+    });
+
+    const event1 = stack.authStore.auditEvents[0]!;
+    const originalHash1 = event1.entryHash!;
+
+    // Case 1: Unexplained tampering (payload corrupted without attestation)
+    // Simulate legacy foreign-key cascade clearing userId to null
+    event1.userId = null;
+
+    const unverifiedResult = await stack.authStore.verifyAuditIntegrity();
+    expect(unverifiedResult.verified).toBe(false);
+    expect(unverifiedResult.failedAtId).toBe(event1.id);
+    expect(unverifiedResult.failureReason).toContain('Tampered log content');
+
+    // Case 2: Documented and attested recovery incident in registry
+    stack.authStore.addRecoveryIncident({
+      eventId: event1.id,
+      incidentType: 'legacy_fk_cascade_null',
+      action: event1.action,
+      corruptedField: 'user_id',
+      remediationStatus: 'explained_legacy_cascade',
+      forensicNote: 'user_id was set to null by legacy relational foreign key cascade prior to migration 0008; chain intact',
+    });
+
+    // When attested with unbroken chain, verification succeeds with incident details
+    const attestedResult = await stack.authStore.verifyAuditIntegrity();
+    expect(attestedResult.verified).toBe(true);
+    expect(attestedResult.failureReason).toBeUndefined();
+    expect(attestedResult.incidents).toHaveLength(1);
+    expect(attestedResult.incidents?.[0]?.eventId).toBe(event1.id);
+    expect(attestedResult.incidents?.[0]?.remediationStatus).toBe('explained_legacy_cascade');
+
+    // Case 3: If cryptographic chain itself is broken, verification MUST fail regardless of incident attestation
+    event1.prevHash = 'broken_prev_hash_000000000000000000000000000000000000000000000000';
+    const brokenChainResult = await stack.authStore.verifyAuditIntegrity();
+    // For event 0 (if prevHash doesn't match GENESIS_HASH) or event 1 (if prevHash doesn't match event 0):
+    const event2 = stack.authStore.auditEvents[1]!;
+    event2.prevHash = 'broken_chain_link_11111111111111111111111111111111111111111111111';
+    const brokenResult = await stack.authStore.verifyAuditIntegrity();
+    expect(brokenResult.verified).toBe(false);
+    expect(brokenResult.failureReason).toContain('Hash chain broken');
+  });
 });

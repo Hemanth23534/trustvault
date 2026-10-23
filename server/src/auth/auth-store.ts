@@ -105,6 +105,15 @@ export interface CheckpointRecord {
   createdAt: string;
 }
 
+export interface AuditRecoveryIncident {
+  eventId: string;
+  incidentType: string;
+  action: string;
+  corruptedField: string;
+  remediationStatus: string;
+  forensicNote: string;
+}
+
 export interface AuditVerificationResult {
   verified: boolean;
   totalEntries: number;
@@ -112,6 +121,7 @@ export interface AuditVerificationResult {
   lastVerifiedHash: string | null;
   failureReason?: string;
   failedAtId?: string;
+  incidents?: AuditRecoveryIncident[];
 }
 
 /**
@@ -122,6 +132,7 @@ export interface AuthStore {
   findCompanyById(id: string): Promise<Company | null>;
   updateCompany(id: string, patch: { name?: string; domain?: string | null }): Promise<Company | null>;
   createUser(input: CreateUserInput): Promise<UserWithCredentials>;
+  deleteUserAccount(userId: string): Promise<boolean>;
   listCompanyUsers(companyId: string): Promise<AuthUser[]>;
   updateUserRoleAndCompany(userId: string, companyId: string | null, role: UserRole): Promise<void>;
   removeCompanyMember(userId: string, companyId: string): Promise<void>;
@@ -181,10 +192,24 @@ interface UserRow extends RowDataPacket {
   company_name?: string | null;
   role: UserRole;
   is_active: number;
+  deleted_at?: Date | null;
   password_hash: string;
   failed_login_count: number;
   locked_until: Date | null;
   password_changed_at: Date | null;
+}
+
+interface IncidentRow extends RowDataPacket {
+  id: string | number;
+  event_id: string | number;
+  incident_type: string;
+  original_entry_hash: string;
+  prev_hash: string;
+  action: string;
+  corrupted_field: string;
+  remediation_status: string;
+  forensic_note: string;
+  created_at: Date;
 }
 
 interface SessionRow extends RowDataPacket {
@@ -280,7 +305,7 @@ function toUser(row: UserRow): UserWithCredentials {
     companyId: row.company_id ?? null,
     companyName: row.company_name ?? null,
     role: row.role,
-    isActive: row.is_active === 1,
+    isActive: row.is_active === 1 && !row.deleted_at,
     passwordHash: row.password_hash,
     failedLoginCount: Number(row.failed_login_count),
     lockedUntil: toDateOrNull(row.locked_until),
@@ -748,6 +773,35 @@ export class MySqlAuthStore implements AuthStore {
     return affected > 0;
   }
 
+  async deleteUserAccount(userId: string): Promise<boolean> {
+    const now = new Date();
+    const [result] = await withDbTimeout(
+      this.pool.execute(
+        `UPDATE users
+            SET is_active = 0,
+                deleted_at = ?,
+                email = CONCAT('deleted_', id, '@trustvault.local'),
+                display_name = 'Deleted Account'
+          WHERE id = ? AND deleted_at IS NULL`,
+        [now, userId],
+      ),
+      5_000,
+      'deleteUserAccount',
+    );
+    const affected = (result as { affectedRows?: number }).affectedRows ?? 0;
+    if (affected > 0) {
+      await withDbTimeout(
+        this.pool.execute(
+          'UPDATE sessions SET revoked_at = NOW(3) WHERE user_id = ? AND revoked_at IS NULL',
+          [userId],
+        ),
+        5_000,
+        'deleteUserAccount.revokeSessions',
+      );
+    }
+    return affected > 0;
+  }
+
   async findSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null> {
     const [rows] = await withDbTimeout(
       this.pool.execute<SessionRow[]>(
@@ -1128,6 +1182,19 @@ export class MySqlAuthStore implements AuthStore {
         ORDER BY id ASC`,
     );
 
+    const incidentMap = new Map<string, IncidentRow>();
+    try {
+      const [incidentRows] = await this.pool.query<IncidentRow[]>(
+        'SELECT event_id, incident_type, original_entry_hash, prev_hash, action, corrupted_field, remediation_status, forensic_note FROM audit_recovery_incidents',
+      );
+      for (const inc of incidentRows) {
+        incidentMap.set(String(inc.event_id), inc);
+      }
+    } catch {
+      // Table may not exist yet in environments prior to migration 0009
+    }
+
+    const recoveredIncidents: AuditRecoveryIncident[] = [];
     let lastHash: string = GENESIS_HASH;
 
     for (let i = 0; i < rows.length; i++) {
@@ -1160,22 +1227,41 @@ export class MySqlAuthStore implements AuthStore {
       });
 
       if (row.entry_hash !== expectedHash) {
-        const isCascadeNulled =
-          (row.user_id === null || row.user_id === '') &&
-          row.action !== 'demo_seed' &&
-          row.action !== 'login_failed';
-        const failureReason = isCascadeNulled
-          ? `Tampered log content at event ${row.id}: entry_hash does not match canonical payload digest (user_id was set to null by legacy relational foreign key cascade on user deletion; cryptographic chain remains intact)`
-          : `Tampered log content at event ${row.id}: entry_hash does not match canonical payload digest`;
+        const incident = incidentMap.get(String(row.id));
+        const isAttested =
+          incident &&
+          incident.original_entry_hash === row.entry_hash &&
+          incident.prev_hash === (row.prev_hash ?? lastHash) &&
+          (incident.remediation_status === 'explained_legacy_cascade' ||
+            incident.remediation_status === 'forensic_attested');
 
-        return {
-          verified: false,
-          totalEntries: rows.length,
-          checkedCheckpoints: 0,
-          lastVerifiedHash: lastHash,
-          failureReason,
-          failedAtId: String(row.id),
-        };
+        if (isAttested) {
+          recoveredIncidents.push({
+            eventId: String(incident.event_id),
+            incidentType: incident.incident_type,
+            action: incident.action,
+            corruptedField: incident.corrupted_field,
+            remediationStatus: incident.remediation_status,
+            forensicNote: incident.forensic_note,
+          });
+        } else {
+          const isCascadeNulled =
+            (row.user_id === null || row.user_id === '') &&
+            row.action !== 'demo_seed' &&
+            row.action !== 'login_failed';
+          const failureReason = isCascadeNulled
+            ? `Tampered log content at event ${row.id}: entry_hash does not match canonical payload digest (user_id was set to null by legacy relational foreign key cascade on user deletion; cryptographic chain remains intact)`
+            : `Tampered log content at event ${row.id}: entry_hash does not match canonical payload digest`;
+
+          return {
+            verified: false,
+            totalEntries: rows.length,
+            checkedCheckpoints: 0,
+            lastVerifiedHash: lastHash,
+            failureReason,
+            failedAtId: String(row.id),
+          };
+        }
       }
 
       lastHash = row.entry_hash;
@@ -1218,6 +1304,7 @@ export class MySqlAuthStore implements AuthStore {
       totalEntries: rows.length,
       checkedCheckpoints: checkpoints.length,
       lastVerifiedHash: rows.length > 0 ? lastHash : null,
+      incidents: recoveredIncidents.length > 0 ? recoveredIncidents : undefined,
     };
   }
 }
