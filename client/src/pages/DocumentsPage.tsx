@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { DocumentTable } from '../components/documents/DocumentTable';
 import { EditDocumentModal } from '../components/documents/EditDocumentModal';
 import { EmptyState, ErrorState } from '../components/ui/Feedback';
-import { IconFile, IconSearch, IconUpload } from '../components/ui/Icons';
+import { IconClose, IconFile, IconSearch, IconUpload } from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
 import { extractErrorMessage } from '../lib/auth';
 import {
@@ -215,6 +215,7 @@ export function DocumentsPage(): JSX.Element {
             <IconSearch width={16} height={16} />
             <input
               id="documents-search"
+              className="filter-input"
               type="search"
               placeholder="Search by name or file name"
               value={searchInput}
@@ -227,6 +228,7 @@ export function DocumentsPage(): JSX.Element {
           <label htmlFor="documents-owner">Owner</label>
           <input
             id="documents-owner"
+            className="filter-input"
             placeholder="Email or name"
             value={ownerInput}
             onChange={(event) => setOwnerInput(event.target.value)}
@@ -237,6 +239,7 @@ export function DocumentsPage(): JSX.Element {
           <label htmlFor="documents-category">Category</label>
           <select
             id="documents-category"
+            className="filter-select"
             value={category}
             onChange={(event) => {
               setCategory(event.target.value as DocumentCategory | '');
@@ -256,6 +259,7 @@ export function DocumentsPage(): JSX.Element {
           <label htmlFor="documents-from">From</label>
           <input
             id="documents-from"
+            className="filter-input"
             type="date"
             value={from}
             onChange={(event) => {
@@ -269,6 +273,7 @@ export function DocumentsPage(): JSX.Element {
           <label htmlFor="documents-to">To</label>
           <input
             id="documents-to"
+            className="filter-input"
             type="date"
             value={to}
             onChange={(event) => {
@@ -279,8 +284,8 @@ export function DocumentsPage(): JSX.Element {
         </div>
 
         {offlineSearchActive ? (
-          <button className="button button-ghost button-sm" type="button" onClick={clearFilters}>
-            Clear filters
+          <button className="button button-secondary button-sm button-filter-clear" type="button" onClick={clearFilters}>
+            <IconClose width={14} height={14} /> Clear filters
           </button>
         ) : null}
       </section>

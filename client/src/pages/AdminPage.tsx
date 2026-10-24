@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AccessDenied, ErrorState, LoadingBlock } from '../components/ui/Feedback';
-import { IconActivity, IconBuilding, IconLock, IconShield, IconUsers } from '../components/ui/Icons';
+import { IconActivity, IconBuilding, IconClose, IconLock, IconSearch, IconShield, IconUsers } from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
 import { extractErrorMessage } from '../lib/auth';
 import {
@@ -468,30 +468,26 @@ export function AdminPage(): JSX.Element {
           </header>
 
           {/* Search & Filters */}
-          <div
-            style={{
-              padding: '1rem',
-              borderBottom: '1px solid var(--color-border, rgba(255, 255, 255, 0.08))',
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '0.75rem',
-              alignItems: 'center',
-            }}
-          >
-            <div style={{ flex: '1 1 240px' }}>
-              <input
-                type="text"
-                placeholder="Search employee name, email, or company..."
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                style={{ width: '100%' }}
-              />
+          <div className="filter-bar">
+            <div className="filter-group-search">
+              <div className="filter-search-wrap">
+                <IconSearch width={16} height={16} />
+                <input
+                  type="text"
+                  className="filter-input filter-input-search"
+                  placeholder="Search employee name, email, or company..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  aria-label="Search employee name, email, or company"
+                />
+              </div>
             </div>
-            <div style={{ minWidth: '160px' }}>
+            <div style={{ minWidth: '170px' }}>
               <select
+                className="filter-select"
                 value={selectedCompanyId}
                 onChange={(e) => setSelectedCompanyId(e.target.value)}
-                style={{ width: '100%' }}
+                aria-label="Filter by company"
               >
                 <option value="all">All Companies ({companies.length})</option>
                 <option value="none">Personal Accounts</option>
@@ -502,11 +498,12 @@ export function AdminPage(): JSX.Element {
                 ))}
               </select>
             </div>
-            <div style={{ minWidth: '140px' }}>
+            <div style={{ minWidth: '160px' }}>
               <select
+                className="filter-select"
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value)}
-                style={{ width: '100%' }}
+                aria-label="Filter by role"
               >
                 <option value="all">All Roles</option>
                 <option value="platform_admin">Platform Administrator</option>
@@ -516,11 +513,12 @@ export function AdminPage(): JSX.Element {
                 <option value="viewer">Viewer</option>
               </select>
             </div>
-            <div style={{ minWidth: '120px' }}>
+            <div style={{ minWidth: '140px' }}>
               <select
+                className="filter-select"
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
-                style={{ width: '100%' }}
+                aria-label="Filter by status"
               >
                 <option value="all">All Statuses</option>
                 <option value="active">Active Only</option>
@@ -530,7 +528,7 @@ export function AdminPage(): JSX.Element {
             {(userSearch || selectedCompanyId !== 'all' || selectedRole !== 'all' || selectedStatus !== 'all') ? (
               <button
                 type="button"
-                className="button button-secondary button-sm"
+                className="button button-secondary button-sm button-filter-reset"
                 onClick={() => {
                   setUserSearch('');
                   setSelectedCompanyId('all');
@@ -538,7 +536,7 @@ export function AdminPage(): JSX.Element {
                   setSelectedStatus('all');
                 }}
               >
-                Reset Filters
+                <IconClose width={14} height={14} /> Reset Filters
               </button>
             ) : null}
           </div>
@@ -813,11 +811,12 @@ export function AdminPage(): JSX.Element {
             </header>
 
             {/* Filter Controls Form */}
-            <form onSubmit={(e) => void handleApplyFilters(e)} className="form-grid" style={{ padding: '1rem', borderBottom: '1px solid var(--color-border, rgba(255, 255, 255, 0.08))' }}>
-              <div className="form-field">
-                <label htmlFor="filter-actor" className="small">Actor Email</label>
+            <form onSubmit={(e) => void handleApplyFilters(e)} className="filter-form-grid">
+              <div className="filter-field">
+                <label htmlFor="filter-actor">Actor Email</label>
                 <input
                   id="filter-actor"
+                  className="filter-input"
                   type="text"
                   placeholder="e.g. user@example.com"
                   value={filterActor}
@@ -825,10 +824,11 @@ export function AdminPage(): JSX.Element {
                 />
               </div>
 
-              <div className="form-field">
-                <label htmlFor="filter-doc" className="small">Document ID</label>
+              <div className="filter-field">
+                <label htmlFor="filter-doc">Document ID</label>
                 <input
                   id="filter-doc"
+                  className="filter-input"
                   type="text"
                   placeholder="UUID prefix or full ID"
                   value={filterDocId}
@@ -836,10 +836,11 @@ export function AdminPage(): JSX.Element {
                 />
               </div>
 
-              <div className="form-field">
-                <label htmlFor="filter-action" className="small">Action</label>
+              <div className="filter-field">
+                <label htmlFor="filter-action">Action</label>
                 <input
                   id="filter-action"
+                  className="filter-input"
                   type="text"
                   placeholder="e.g. document.uploaded"
                   value={filterAction}
@@ -847,10 +848,11 @@ export function AdminPage(): JSX.Element {
                 />
               </div>
 
-              <div className="form-field">
-                <label htmlFor="filter-outcome" className="small">Outcome</label>
+              <div className="filter-field">
+                <label htmlFor="filter-outcome">Outcome</label>
                 <select
                   id="filter-outcome"
+                  className="filter-select"
                   value={filterOutcome}
                   onChange={(e) => setFilterOutcome(e.target.value as 'success' | 'failure' | 'denied' | '')}
                 >
@@ -861,33 +863,36 @@ export function AdminPage(): JSX.Element {
                 </select>
               </div>
 
-              <div className="form-field">
-                <label htmlFor="filter-from" className="small">From Date</label>
+              <div className="filter-field">
+                <label htmlFor="filter-from">From Date</label>
                 <input
                   id="filter-from"
+                  className="filter-input"
                   type="date"
                   value={filterFrom}
                   onChange={(e) => setFilterFrom(e.target.value)}
                 />
               </div>
 
-              <div className="form-field">
-                <label htmlFor="filter-to" className="small">To Date</label>
+              <div className="filter-field">
+                <label htmlFor="filter-to">To Date</label>
                 <input
                   id="filter-to"
+                  className="filter-input"
                   type="date"
                   value={filterTo}
                   onChange={(e) => setFilterTo(e.target.value)}
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
-                <button type="submit" className="button button-primary button-sm">
+              <div className="filter-actions" style={{ alignItems: 'flex-end', height: '100%', paddingBottom: '2px' }}>
+                <button type="submit" className="button button-primary button-sm" style={{ height: '40px' }}>
                   Apply Filters
                 </button>
                 <button
                   type="button"
                   className="button button-secondary button-sm"
+                  style={{ height: '40px' }}
                   onClick={() => void handleResetFilters()}
                 >
                   Reset

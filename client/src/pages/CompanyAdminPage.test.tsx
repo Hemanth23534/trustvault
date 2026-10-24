@@ -148,7 +148,11 @@ describe('CompanyAdminPage layout, metrics, and security behavior', () => {
     expect(html).toContain('Vicky Viewer');
     expect(html).toContain('Disabled');
 
-    // Search and filter inputs exist
+    // Search and filter inputs exist with unified dark theme styling
+    expect(html).toContain('class="filter-bar"');
+    expect(html).toContain('class="filter-search-wrap"');
+    expect(html).toContain('class="filter-input filter-input-search"');
+    expect(html).toContain('class="filter-select"');
     expect(html).toContain('Search by employee name or email...');
     expect(html).toContain('All Roles');
     expect(html).toContain('All Statuses');

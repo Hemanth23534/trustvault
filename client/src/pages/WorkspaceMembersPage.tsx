@@ -323,6 +323,7 @@ export function WorkspaceMembersPage({
             <div style={{ flex: 2, minWidth: 240 }}>
               <input
                 type="email"
+                className="filter-input"
                 required
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
@@ -332,6 +333,7 @@ export function WorkspaceMembersPage({
             </div>
             <div style={{ width: 140 }}>
               <select
+                className="filter-select"
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value as any)}
                 disabled={inviting}

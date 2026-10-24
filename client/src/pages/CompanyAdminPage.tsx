@@ -274,32 +274,26 @@ export function CompanyAdminPage({
           </header>
 
           {/* Search & Filter Controls */}
-          <div
-            style={{
-              padding: '1rem',
-              borderBottom: '1px solid var(--color-border, rgba(255, 255, 255, 0.08))',
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '0.75rem',
-              alignItems: 'center',
-            }}
-          >
-            <div style={{ flex: '1 1 240px', position: 'relative' }}>
-              <input
-                type="text"
-                placeholder="Search by employee name or email..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ width: '100%' }}
-                aria-label="Search employees"
-              />
+          <div className="filter-bar">
+            <div className="filter-group-search">
+              <div className="filter-search-wrap">
+                <IconSearch width={16} height={16} />
+                <input
+                  type="text"
+                  className="filter-input filter-input-search"
+                  placeholder="Search by employee name or email..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  aria-label="Search by employee name or email"
+                />
+              </div>
             </div>
 
-            <div style={{ minWidth: '150px' }}>
+            <div style={{ minWidth: '160px' }}>
               <select
+                className="filter-select"
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value)}
-                style={{ width: '100%' }}
                 aria-label="Filter by role"
               >
                 <option value="all">All Roles</option>
@@ -312,9 +306,9 @@ export function CompanyAdminPage({
 
             <div style={{ minWidth: '150px' }}>
               <select
+                className="filter-select"
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
-                style={{ width: '100%' }}
                 aria-label="Filter by account status"
               >
                 <option value="all">All Statuses</option>
@@ -326,7 +320,7 @@ export function CompanyAdminPage({
             {hasActiveFilters ? (
               <button
                 type="button"
-                className="button button-secondary button-sm"
+                className="button button-secondary button-sm button-filter-clear"
                 onClick={resetFilters}
               >
                 <IconClose width={14} height={14} /> Clear filters
