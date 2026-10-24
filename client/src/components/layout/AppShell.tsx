@@ -51,7 +51,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/profile', label: 'Profile & Settings', icon: <IconUser /> },
 ];
 
-function pageTitle(pathname: string): string {
+function pageTitle(pathname: string, userRole?: string): string {
   if (pathname === '/' || pathname === '/dashboard') return 'Dashboard';
   if (pathname === '/documents') return 'Documents';
   if (pathname === '/documents/new') return 'Upload document';
@@ -60,7 +60,9 @@ function pageTitle(pathname: string): string {
   if (pathname === '/workspace/create') return 'Create company workspace';
   if (pathname === '/workspace/members') return 'Members & invitations';
   if (pathname === '/workspace/settings') return 'Workspace settings';
-  if (pathname === '/admin' || pathname === '/platform-admin') return 'Platform Administration';
+  if (pathname === '/admin' || pathname === '/platform-admin') {
+    return userRole === 'platform_admin' ? 'Platform Administration' : 'Dashboard';
+  }
   if (pathname === '/profile') return 'Profile & settings';
   return 'TrustVault';
 }
@@ -222,7 +224,7 @@ export function AppShell(): JSX.Element {
             <span className="topbar-eyebrow">
               {user?.companyName ? `${user.companyName} workspace` : 'Personal workspace'}
             </span>
-            <h1>{pageTitle(location.pathname)}</h1>
+            <h1>{pageTitle(location.pathname, user?.role)}</h1>
           </div>
           <div className="topbar-account" ref={userMenuRef}>
             <button

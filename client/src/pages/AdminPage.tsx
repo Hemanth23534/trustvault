@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
+import { Navigate } from 'react-router-dom';
 import { AccessDenied, ErrorState, LoadingBlock } from '../components/ui/Feedback';
 import { IconActivity, IconBuilding, IconLock, IconShield, IconUsers } from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
@@ -297,9 +298,12 @@ export function AdminPage(): JSX.Element {
 
   if (denied || (currentActor && currentActor.role !== 'platform_admin')) {
     return (
-      <AccessDenied
-        title="Platform Administrator Access Required"
-        message="This dashboard is exclusively reserved for the Platform Administrator (website creator). Company owners and administrators can manage their organization's members under Members & Invitations."
+      <Navigate
+        to="/dashboard"
+        replace
+        state={{
+          notice: 'Platform Administration is restricted to the authorized Platform Administrator account.',
+        }}
       />
     );
   }

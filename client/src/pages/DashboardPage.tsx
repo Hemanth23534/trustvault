@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { DocumentTable } from '../components/documents/DocumentTable';
 import { IconActivity, IconArrowRight, IconFile, IconShare, IconShield, IconUpload } from '../components/ui/Icons';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
@@ -48,11 +48,23 @@ function AnimatedNumber({ value }: { value: number }): JSX.Element {
 
 export function DashboardPage(): JSX.Element {
   const { user } = useAuth();
+  const location = useLocation();
+  const [notice, setNotice] = useState<string | null>(() => {
+    return (location.state as { notice?: string } | null)?.notice ?? null;
+  });
   const [stats, setStats] = useState<DocumentStats | null>(null);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stateNotice = (location.state as { notice?: string } | null)?.notice;
+    if (stateNotice) {
+      setNotice(stateNotice);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,6 +131,39 @@ export function DashboardPage(): JSX.Element {
 
   return (
     <div className="stack page-enter">
+      {notice ? (
+        <div
+          className="alert alert-info"
+          role="status"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            padding: '0.85rem 1.15rem',
+            borderRadius: 'var(--radius-sm)',
+            background: 'rgba(56, 189, 248, 0.1)',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            color: 'var(--text-primary)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <IconShield width={18} height={18} style={{ color: 'var(--accent-cyan)', flexShrink: 0 }} />
+            <span style={{ fontSize: '0.92rem', fontWeight: 500 }}>{notice}</span>
+          </div>
+          <button
+            type="button"
+            className="button button-ghost button-sm"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss notification"
+            style={{ minHeight: 'unset', padding: '0.2rem 0.5rem', color: 'var(--text-muted)' }}
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
+
       <section className="page-intro">
         <div>
           <p className="eyebrow">{isViewer ? 'Viewer workspace' : 'Owner workspace'}</p>

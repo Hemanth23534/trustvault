@@ -56,7 +56,39 @@ describe('ProtectedRoute components', () => {
   });
 
   describe('RequireRole', () => {
-    it('blocks owner from admin route with 403 and provides working Dashboard link', () => {
+    it('redirects company admin away from platform admin route to dashboard without 403 error', () => {
+      vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+        mockAuthContext({
+          status: 'authenticated',
+          user: {
+            id: 'usr-comp-admin',
+            email: 'admin@acme.example',
+            displayName: 'Company Admin',
+            role: 'admin',
+            isActive: true,
+            companyId: 'comp-1',
+            companyName: 'Acme',
+          },
+        }),
+      );
+
+      const html = renderToString(
+        <MemoryRouter initialEntries={['/admin']}>
+          <Routes>
+            <Route element={<RequireRole roles={['platform_admin']} />}>
+              <Route path="/admin" element={<div>Platform Admin Dashboard</div>} />
+            </Route>
+            <Route path="/dashboard" element={<div>Company Dashboard Page</div>} />
+          </Routes>
+        </MemoryRouter>,
+      );
+
+      expect(html).not.toContain('Platform Admin Dashboard');
+      expect(html).not.toContain('403');
+      expect(html).toBe('');
+    });
+
+    it('redirects company owner away from platform admin route to dashboard without 403 error', () => {
       vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
         mockAuthContext({
           status: 'authenticated',
@@ -75,30 +107,60 @@ describe('ProtectedRoute components', () => {
       const html = renderToString(
         <MemoryRouter initialEntries={['/admin']}>
           <Routes>
-            <Route element={<RequireRole roles={['admin']} />}>
-              <Route path="/admin" element={<div>Super Secret Admin Panel</div>} />
+            <Route element={<RequireRole roles={['platform_admin']} />}>
+              <Route path="/admin" element={<div>Platform Admin Dashboard</div>} />
             </Route>
+            <Route path="/dashboard" element={<div>Company Dashboard Page</div>} />
           </Routes>
         </MemoryRouter>,
       );
 
-      expect(html).toContain('403');
-      expect(html).toContain('Access restricted');
-      expect(html).toContain('You do not have the required permissions to view this section.');
-      expect(html).toContain('Return to Dashboard');
-      expect(html).toContain('href="/dashboard"');
-      expect(html).not.toContain('Super Secret Admin Panel');
+      expect(html).not.toContain('Platform Admin Dashboard');
+      expect(html).not.toContain('403');
+      expect(html).toBe('');
     });
 
-    it('allows admin role to access admin-gated routes', () => {
+    it('redirects normal employees (editor/viewer) away from platform admin route to dashboard', () => {
       vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
         mockAuthContext({
           status: 'authenticated',
           user: {
-            id: 'usr-admin',
+            id: 'usr-viewer',
+            email: 'viewer@acme.example',
+            displayName: 'Viewer',
+            role: 'viewer',
+            isActive: true,
+            companyId: 'comp-1',
+            companyName: 'Acme',
+          },
+        }),
+      );
+
+      const html = renderToString(
+        <MemoryRouter initialEntries={['/admin']}>
+          <Routes>
+            <Route element={<RequireRole roles={['platform_admin']} />}>
+              <Route path="/admin" element={<div>Platform Admin Dashboard</div>} />
+            </Route>
+            <Route path="/dashboard" element={<div>Company Dashboard Page</div>} />
+          </Routes>
+        </MemoryRouter>,
+      );
+
+      expect(html).not.toContain('Platform Admin Dashboard');
+      expect(html).not.toContain('403');
+      expect(html).toBe('');
+    });
+
+    it('allows platform_admin role to access platform admin route', () => {
+      vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+        mockAuthContext({
+          status: 'authenticated',
+          user: {
+            id: 'usr-platform-admin',
             email: 'admin@trustvault.local',
-            displayName: 'Admin User',
-            role: 'admin',
+            displayName: 'System Creator',
+            role: 'platform_admin',
             isActive: true,
             companyId: null,
             companyName: null,
@@ -109,14 +171,15 @@ describe('ProtectedRoute components', () => {
       const html = renderToString(
         <MemoryRouter initialEntries={['/admin']}>
           <Routes>
-            <Route element={<RequireRole roles={['admin']} />}>
-              <Route path="/admin" element={<div>Super Secret Admin Panel</div>} />
+            <Route element={<RequireRole roles={['platform_admin']} />}>
+              <Route path="/admin" element={<div>Platform Admin Dashboard</div>} />
             </Route>
+            <Route path="/dashboard" element={<div>Company Dashboard Page</div>} />
           </Routes>
         </MemoryRouter>,
       );
 
-      expect(html).toContain('Super Secret Admin Panel');
+      expect(html).toContain('Platform Admin Dashboard');
       expect(html).not.toContain('403');
     });
   });

@@ -1,9 +1,8 @@
-import { useState, type JSX } from 'react';
+import { useState, type FormEvent, type JSX } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { BrandMark } from '../components/BrandMark';
-import { IconLock, IconShield } from '../components/ui/Icons';
+import { IconArrowRight, IconLock, IconShield } from '../components/ui/Icons';
 import { useAuth } from '../context/AuthContext';
-import { extractErrorMessage } from '../lib/auth';
 import { roleLabel } from '../lib/format';
 
 export function PlatformAdminLoginPage(): JSX.Element {
@@ -19,29 +18,33 @@ export function PlatformAdminLoginPage(): JSX.Element {
   if (status === 'authenticated' && user) {
     if (user.role === 'platform_admin') {
       return (
-        <div className="auth-shell">
-          <div className="auth-card" style={{ maxWidth: '480px', textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-              <BrandMark size={44} />
+        <div className="platform-admin-page">
+          <div className="platform-admin-card" style={{ textAlign: 'center' }}>
+            <div className="platform-admin-header">
+              <div className="platform-admin-icon-wrap">
+                <BrandMark size={36} />
+              </div>
+              <span className="platform-admin-badge" style={{ background: 'rgba(52, 211, 153, 0.12)', color: 'var(--status-ok)', borderColor: 'rgba(52, 211, 153, 0.35)' }}>
+                <IconShield width={13} height={13} />
+                Platform Administrator Active
+              </span>
+              <h1 className="platform-admin-title">Welcome Back</h1>
+              <p className="platform-admin-description">
+                You are currently authenticated as <strong>{user.displayName ?? user.email}</strong> with full platform governance privileges.
+              </p>
             </div>
-            <div className="tag tag-role-owner" style={{ display: 'inline-flex', marginBottom: '1rem' }}>
-              <IconShield width={14} height={14} /> Platform Administrator Active
-            </div>
-            <h2>Welcome Back, {user.displayName ?? user.email}</h2>
-            <p className="muted" style={{ marginBottom: '1.5rem' }}>
-              You are currently authenticated as the Platform Administrator.
-            </p>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%', marginTop: '0.5rem' }}>
               <button
                 type="button"
-                className="button button-primary"
+                className="button button-primary button-block"
                 onClick={() => navigate('/admin')}
               >
-                Go to Platform Dashboard
+                Go to Platform Dashboard <IconArrowRight width={15} height={15} />
               </button>
               <button
                 type="button"
-                className="button button-secondary"
+                className="button button-secondary button-block"
                 onClick={() => void logout()}
               >
                 Sign Out
@@ -52,36 +55,64 @@ export function PlatformAdminLoginPage(): JSX.Element {
       );
     }
 
-    // Authenticated as a non-platform admin
+    // Authenticated as a company-level user (owner, admin, editor, viewer)
     return (
-      <div className="auth-shell">
-        <div className="auth-card" style={{ maxWidth: '480px', textAlign: 'center' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-            <BrandMark size={44} />
-          </div>
-          <div className="tag tag-muted" style={{ display: 'inline-flex', marginBottom: '1rem', color: '#f87171' }}>
-            <IconLock width={14} height={14} /> Platform Portal Restricted
-          </div>
-          <h2>Access Restricted</h2>
-          <p className="muted" style={{ marginBottom: '1rem' }}>
-            You are currently signed in as <strong>{user.email}</strong> with company role <strong>{roleLabel(user.role)}</strong>.
-          </p>
-          <div className="panel" style={{ textAlign: 'left', margin: '1rem 0', background: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.25)' }}>
-            <p style={{ margin: 0, fontSize: '0.9rem', color: '#fca5a5' }}>
-              This portal is strictly reserved for the Platform Administrator (website creator). Company owners, administrators, and team members must use the Company Workspace dashboard.
+      <div className="platform-admin-page">
+        <div className="platform-admin-card" style={{ textAlign: 'center' }}>
+          <div className="platform-admin-header">
+            <div
+              className="platform-admin-icon-wrap"
+              style={{
+                background: 'radial-gradient(circle, rgba(248, 113, 113, 0.15) 0%, rgba(248, 113, 113, 0.02) 70%)',
+                borderColor: 'rgba(248, 113, 113, 0.35)',
+                boxShadow: '0 0 20px rgba(248, 113, 113, 0.15)',
+              }}
+            >
+              <IconLock width={26} height={26} style={{ color: '#f87171' }} />
+            </div>
+            <span
+              className="platform-admin-badge"
+              style={{
+                background: 'rgba(248, 113, 113, 0.12)',
+                color: '#f87171',
+                borderColor: 'rgba(248, 113, 113, 0.35)',
+              }}
+            >
+              <IconLock width={13} height={13} />
+              Platform Portal Restricted
+            </span>
+            <h1 className="platform-admin-title">Access Restricted</h1>
+            <p className="platform-admin-description">
+              You are currently signed in as <strong>{user.email}</strong> with company role <strong>{roleLabel(user.role)}</strong>.
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', marginTop: '1.5rem' }}>
+
+          <div
+            style={{
+              textAlign: 'left',
+              padding: '1rem',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              fontSize: '0.85rem',
+              color: '#fca5a5',
+              lineHeight: 1.5,
+            }}
+          >
+            This portal is strictly reserved for the Platform Administrator (website creator). Company owners, administrators, and team members must use the Company Workspace dashboard.
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%' }}>
             <button
               type="button"
-              className="button button-primary"
+              className="button button-primary button-block"
               onClick={() => navigate('/dashboard')}
             >
               Go to Workspace Dashboard
             </button>
             <button
               type="button"
-              className="button button-secondary"
+              className="button button-secondary button-block"
               onClick={() => void logout()}
             >
               Sign Out & Switch Account
@@ -92,7 +123,7 @@ export function PlatformAdminLoginPage(): JSX.Element {
     );
   }
 
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     if (!email.trim() || !password) return;
 
@@ -105,8 +136,7 @@ export function PlatformAdminLoginPage(): JSX.Element {
       if (result.user?.role === 'platform_admin') {
         navigate('/admin');
       } else {
-        // Logged in user is not a platform admin
-        // State will re-render into the restricted view above
+        // Logged in user is not a platform admin; state will re-render into the restricted view above
       }
     } else {
       setError(result.message ?? 'Invalid administrator credentials.');
@@ -115,31 +145,20 @@ export function PlatformAdminLoginPage(): JSX.Element {
   }
 
   return (
-    <div className="auth-shell">
-      <div className="auth-card" style={{ maxWidth: '440px' }}>
-        <header className="auth-card-head" style={{ textAlign: 'center' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.75rem' }}>
-            <BrandMark size={40} />
+    <div className="platform-admin-page">
+      <div className="platform-admin-card">
+        <header className="platform-admin-header">
+          <div className="platform-admin-icon-wrap">
+            <BrandMark size={36} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.5rem' }}>
-            <span
-              className="tag"
-              style={{
-                background: 'rgba(56, 189, 248, 0.15)',
-                color: '#38bdf8',
-                borderColor: 'rgba(56, 189, 248, 0.3)',
-                fontWeight: 600,
-                fontSize: '0.75rem',
-                letterSpacing: '0.05em',
-                textTransform: 'uppercase',
-              }}
-            >
-              <IconShield width={13} height={13} style={{ marginRight: '4px', verticalAlign: 'text-bottom' }} />
-              Platform Administration
-            </span>
-          </div>
-          <h1 style={{ fontSize: '1.5rem', margin: '0.25rem 0' }}>Creator & Platform Portal</h1>
-          <p className="muted small" style={{ margin: 0 }}>
+
+          <span className="platform-admin-badge">
+            <IconShield width={13} height={13} />
+            Platform Administration
+          </span>
+
+          <h1 className="platform-admin-title">Creator & Platform Portal</h1>
+          <p className="platform-admin-description">
             Dedicated secure access for TrustVault platform governance, cross-company visibility, and audit ledger integrity.
           </p>
         </header>
@@ -150,23 +169,27 @@ export function PlatformAdminLoginPage(): JSX.Element {
             role="alert"
             style={{
               padding: '0.75rem 1rem',
-              borderRadius: '6px',
-              margin: '1rem 0',
+              borderRadius: 'var(--radius-sm)',
               background: 'rgba(239, 68, 68, 0.12)',
               border: '1px solid rgba(239, 68, 68, 0.3)',
               color: '#fca5a5',
               fontSize: '0.875rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
             }}
           >
-            {error}
+            <IconLock width={15} height={15} style={{ flexShrink: 0 }} />
+            <span>{error}</span>
           </div>
         ) : null}
 
-        <form onSubmit={(e) => void handleSubmit(e)} className="form" style={{ marginTop: '1.25rem' }}>
-          <div className="form-field">
+        <form onSubmit={(e) => void handleSubmit(e)} className="platform-admin-form" noValidate>
+          <div className="field">
             <label htmlFor="admin-email">Platform Administrator Email</label>
             <input
               id="admin-email"
+              name="email"
               type="email"
               autoComplete="username"
               required
@@ -178,10 +201,11 @@ export function PlatformAdminLoginPage(): JSX.Element {
             />
           </div>
 
-          <div className="form-field">
+          <div className="field">
             <label htmlFor="admin-password">Password</label>
             <input
               id="admin-password"
+              name="password"
               type="password"
               autoComplete="current-password"
               required
@@ -194,29 +218,21 @@ export function PlatformAdminLoginPage(): JSX.Element {
 
           <button
             type="submit"
-            className="button button-primary"
-            style={{ width: '100%', marginTop: '0.5rem' }}
+            className="button button-primary button-block"
             disabled={submitting}
+            style={{ marginTop: '0.35rem', padding: '0.7rem 1.25rem', fontSize: '0.925rem' }}
           >
             {submitting ? 'Verifying Platform Credentials…' : 'Sign In as Platform Administrator'}
           </button>
         </form>
 
-        <div
-          style={{
-            marginTop: '1.75rem',
-            paddingTop: '1.25rem',
-            borderTop: '1px solid var(--color-border, rgba(255, 255, 255, 0.1))',
-            textAlign: 'center',
-          }}
-        >
-          <p className="muted small" style={{ margin: '0 0 0.5rem 0' }}>
+        <div className="platform-admin-footer">
+          <p className="muted small" style={{ margin: 0 }}>
             Are you a Company Workspace owner or employee?
           </p>
           <Link
             to="/login"
-            className="button button-secondary button-sm"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+            className="button button-secondary button-block button-sm"
           >
             Go to Company Workspace Login →
           </Link>
@@ -225,4 +241,5 @@ export function PlatformAdminLoginPage(): JSX.Element {
     </div>
   );
 }
+
 export default PlatformAdminLoginPage;

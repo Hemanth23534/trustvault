@@ -43,29 +43,52 @@ export function RequireRole({
     return <Navigate to="/login" replace />;
   }
 
+  // If a route requires platform_admin and the user is not a platform_admin
+  // (e.g. company owner, company admin, editor, viewer), redirect them to their
+  // company dashboard with a friendly notification instead of showing an error page.
+  if (roles?.includes('platform_admin') && user.role !== 'platform_admin') {
+    return (
+      <Navigate
+        to="/dashboard"
+        replace
+        state={{
+          notice: 'Platform Administration is restricted to the authorized Platform Administrator account.',
+        }}
+      />
+    );
+  }
+
   if (roles && !roles.includes(user.role)) {
     return (
-      <AccessDenied
-        title="Access restricted"
-        message="You do not have the required permissions to view this section."
+      <Navigate
+        to="/dashboard"
+        replace
+        state={{
+          notice: 'You do not have the required permissions to access that section.',
+        }}
       />
     );
   }
 
-  if (role === 'admin' && user.role !== 'admin') {
+  if (role && role !== user.role) {
+    if (role === 'platform_admin') {
+      return (
+        <Navigate
+          to="/dashboard"
+          replace
+          state={{
+            notice: 'Platform Administration is restricted to the authorized Platform Administrator account.',
+          }}
+        />
+      );
+    }
     return (
-      <AccessDenied
-        title="Administrator access required"
-        message="This area is limited to platform administrators."
-      />
-    );
-  }
-
-  if (role === 'owner' && user.role === 'viewer') {
-    return (
-      <AccessDenied
-        title="Owner access required"
-        message="Viewers can open documents shared with them, but cannot manage a library."
+      <Navigate
+        to="/dashboard"
+        replace
+        state={{
+          notice: 'You do not have the required permissions to access that section.',
+        }}
       />
     );
   }
