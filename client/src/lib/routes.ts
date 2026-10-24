@@ -63,6 +63,11 @@ export function isPathAuthorized(
     return user.role === 'owner' || user.role === 'admin' || user.role === 'platform_admin';
   }
 
+  // Company administration: workspace owners and administrators of a company
+  if (normalized === '/company-admin' || normalized.startsWith('/company-admin/')) {
+    return (user.role === 'owner' || user.role === 'admin') && Boolean(user.companyId);
+  }
+
   // Workspace members: workspace owners and administrators of a company
   if (normalized === '/workspace/members') {
     return (user.role === 'owner' || user.role === 'admin') && Boolean(user.companyId);
@@ -81,6 +86,11 @@ export function isPathAuthorized(
     normalized.startsWith('/platform-admin/')
   ) {
     return user.role === 'platform_admin';
+  }
+
+  // Profile and settings: all authenticated users
+  if (normalized === '/profile') {
+    return true;
   }
 
   // Any unrecognized route is not authorized

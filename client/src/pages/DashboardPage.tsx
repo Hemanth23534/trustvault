@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { DocumentTable } from '../components/documents/DocumentTable';
-import { IconActivity, IconArrowRight, IconFile, IconShare, IconShield, IconUpload } from '../components/ui/Icons';
+import { IconActivity, IconArrowRight, IconBuilding, IconFile, IconShare, IconShield, IconUpload } from '../components/ui/Icons';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
 import { useAuth } from '../context/AuthContext';
 import { extractErrorMessage } from '../lib/auth';
@@ -46,15 +46,25 @@ function AnimatedNumber({ value }: { value: number }): JSX.Element {
   return <span>{display}</span>;
 }
 
-export function DashboardPage(): JSX.Element {
+export interface DashboardPageProps {
+  initialLoading?: boolean;
+  initialStats?: DocumentStats | null;
+  initialDocuments?: DocumentItem[];
+}
+
+export function DashboardPage({
+  initialLoading,
+  initialStats = null,
+  initialDocuments = [],
+}: DashboardPageProps = {}): JSX.Element {
   const { user } = useAuth();
   const location = useLocation();
   const [notice, setNotice] = useState<string | null>(() => {
     return (location.state as { notice?: string } | null)?.notice ?? null;
   });
-  const [stats, setStats] = useState<DocumentStats | null>(null);
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<DocumentStats | null>(initialStats);
+  const [documents, setDocuments] = useState<DocumentItem[]>(initialDocuments);
+  const [loading, setLoading] = useState(initialLoading ?? (initialStats !== null ? false : true));
   const [error, setError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
@@ -97,8 +107,9 @@ export function DashboardPage(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    if (initialLoading === false) return;
     void load();
-  }, [load]);
+  }, [load, initialLoading]);
 
   async function handleDownload(document: DocumentItem): Promise<void> {
     setDownloadingId(document.id);
@@ -238,7 +249,7 @@ export function DashboardPage(): JSX.Element {
           </span>
         </article>
 
-        {user?.role === 'admin' ? (
+        {user?.role === 'platform_admin' ? (
           <article className="stat-card stat-card-accent">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="stat-label">Administration</span>
@@ -247,6 +258,19 @@ export function DashboardPage(): JSX.Element {
             <strong className="stat-value">Platform</strong>
             <Link className="stat-link" to="/admin">
               Open activity dashboard <IconArrowRight width={14} height={14} />
+            </Link>
+          </article>
+        ) : (user?.role === 'admin' || user?.role === 'owner') && user?.companyId ? (
+          <article className="stat-card stat-card-accent">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="stat-label">Company Administration</span>
+              <IconBuilding width={16} height={16} style={{ color: 'var(--accent-cyan)' }} />
+            </div>
+            <strong className="stat-value" style={{ fontSize: '1.25rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user.companyName ?? 'Organization'}
+            </strong>
+            <Link className="stat-link" to="/company-admin">
+              Manage organization <IconArrowRight width={14} height={14} />
             </Link>
           </article>
         ) : (

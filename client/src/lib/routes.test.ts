@@ -40,6 +40,7 @@ describe('routes utility', () => {
       expect(isPathAuthorized('/documents/doc-123', owner)).toBe(true);
       expect(isPathAuthorized('/documents/new', owner)).toBe(true);
       expect(isPathAuthorized('/history', owner)).toBe(true);
+      expect(isPathAuthorized('/company-admin', owner)).toBe(true);
       expect(isPathAuthorized('/workspace/members', owner)).toBe(true);
       expect(isPathAuthorized('/workspace/settings', owner)).toBe(true);
 
@@ -56,6 +57,7 @@ describe('routes utility', () => {
     it('requires companyId for company workspace management routes', () => {
       const personalOwner = makeUser({ role: 'owner', companyId: null });
 
+      expect(isPathAuthorized('/company-admin', personalOwner)).toBe(false);
       expect(isPathAuthorized('/workspace/members', personalOwner)).toBe(false);
       expect(isPathAuthorized('/workspace/settings', personalOwner)).toBe(false);
       expect(isPathAuthorized('/workspace/create', personalOwner)).toBe(true);
@@ -78,6 +80,7 @@ describe('routes utility', () => {
     it('allows company admins to access company management but strictly forbids /admin', () => {
       const companyAdmin = makeUser({ role: 'admin', companyId: 'comp-1' });
 
+      expect(isPathAuthorized('/company-admin', companyAdmin)).toBe(true);
       expect(isPathAuthorized('/workspace/members', companyAdmin)).toBe(true);
       expect(isPathAuthorized('/dashboard', companyAdmin)).toBe(true);
       expect(isPathAuthorized('/documents', companyAdmin)).toBe(true);
@@ -132,6 +135,15 @@ describe('routes utility', () => {
       expect(getPostAuthRedirect('/documents', owner)).toBe('/documents');
       expect(getPostAuthRedirect('/documents/new', owner)).toBe('/documents/new');
       expect(getPostAuthRedirect('/workspace/members', owner)).toBe('/workspace/members');
+      expect(getPostAuthRedirect('/company-admin', owner)).toBe('/company-admin');
+    });
+
+    it('redirects unauthorized users back to /dashboard when requesting /company-admin', () => {
+      const viewer = makeUser({ role: 'viewer', companyId: 'comp-1' });
+      expect(getPostAuthRedirect('/company-admin', viewer)).toBe('/dashboard');
+
+      const personalOwner = makeUser({ role: 'owner', companyId: null });
+      expect(getPostAuthRedirect('/company-admin', personalOwner)).toBe('/dashboard');
     });
 
     it('defaults to /dashboard when no valid path was requested or user is null', () => {

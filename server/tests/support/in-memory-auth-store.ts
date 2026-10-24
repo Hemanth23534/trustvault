@@ -16,7 +16,15 @@ import type {
   SessionRecord,
   UserWithCredentials,
 } from '../../src/auth/auth-store.js';
-import type { AuthUser, Company, CompanyInvitation, UserRole } from '../../src/auth/types.js';
+import type {
+  AuthUser,
+  Company,
+  CompanyAdminActivityEntry,
+  CompanyAdminEmployee,
+  CompanyAdminOverview,
+  CompanyInvitation,
+  UserRole,
+} from '../../src/auth/types.js';
 
 interface StoredSession {
   id: string;
@@ -35,6 +43,10 @@ export interface NewUserInput {
   role?: UserRole;
   isActive?: boolean;
   displayName?: string | null;
+  companyId?: string | null;
+  companyName?: string | null;
+  createdAt?: Date;
+  lastLoginAt?: Date | null;
   failedLoginCount?: number;
   lockedUntil?: Date | null;
   passwordChangedAt?: Date | null;
@@ -100,6 +112,8 @@ export class InMemoryAuthStore implements AuthStore {
       failedLoginCount: 0,
       lockedUntil: null,
       passwordChangedAt: null,
+      createdAt: input.createdAt,
+      lastLoginAt: null,
     };
     this.users.set(user.id, user);
     return user;
@@ -132,6 +146,79 @@ export class InMemoryAuthStore implements AuthStore {
         role: u.role,
         isActive: u.isActive,
       }));
+  }
+
+  async getCompanyAdminOverview(companyId: string): Promise<CompanyAdminOverview> {
+    const company = this.companies.get(companyId);
+    if (!company) {
+      throw new Error('Workspace not found');
+    }
+
+    const employees: CompanyAdminEmployee[] = [...this.users.values()]
+      .filter((u) => u.companyId === companyId)
+      .map((u) => ({
+        id: u.id,
+        email: u.email,
+        displayName: u.displayName,
+        role: u.role,
+        isActive: u.isActive,
+        createdAt: u.createdAt ?? company.createdAt,
+        lastLoginAt: u.lastLoginAt ?? null,
+      }))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    const totalEmployees = employees.length;
+    const ownerCount = employees.filter((e) => e.role === 'owner').length;
+    const adminCount = employees.filter((e) => e.role === 'admin').length;
+    const activeEmployees = employees.filter((e) => e.isActive).length;
+
+    const now = Date.now();
+    const pendingInvitationsCount = [...this.invitations.values()].filter(
+      (inv) => inv.companyId === companyId && inv.status === 'pending' && inv.expiresAt.getTime() > now,
+    ).length;
+
+    const userMap = new Map<string, UserWithCredentials>();
+    for (const u of this.users.values()) {
+      userMap.set(u.id, u);
+    }
+
+    const recentActivity: CompanyAdminActivityEntry[] = this.auditEvents
+      .filter((e) => e.companyId === companyId)
+      .slice(-20)
+      .reverse()
+      .map((e) => {
+        const actor = e.userId ? userMap.get(e.userId) : null;
+        return {
+          id: e.id,
+          action: e.action,
+          outcome: e.outcome,
+          actorId: e.userId,
+          actorEmail: actor?.email ?? null,
+          actorName: actor?.displayName ?? null,
+          resourceType: e.resourceType,
+          resourceId: e.resourceId,
+          metadata: e.metadata,
+          createdAt: e.createdAt,
+        };
+      });
+
+    return {
+      company: {
+        id: company.id,
+        name: company.name,
+        domain: company.domain ?? null,
+        createdAt: company.createdAt,
+      },
+      metrics: {
+        totalEmployees,
+        ownerCount,
+        adminCount,
+        activeEmployees,
+        pendingInvitationsCount,
+      },
+      employees,
+      recentActivity,
+    };
   }
 
   onMemberRemoved?: (userId: string, companyId: string) => void;
@@ -255,12 +342,16 @@ export class InMemoryAuthStore implements AuthStore {
       id: `00000000-0000-4000-8000-${String(this.userSequence).padStart(12, '0')}`,
       email: input.email.trim().toLowerCase(),
       displayName: input.displayName ?? null,
+      companyId: input.companyId ?? null,
+      companyName: input.companyName ?? (input.companyId ? this.companies.get(input.companyId)?.name ?? null : null),
       role: input.role ?? 'viewer',
       isActive: input.isActive ?? true,
       passwordHash: input.passwordHash,
       failedLoginCount: input.failedLoginCount ?? 0,
       lockedUntil: input.lockedUntil ?? null,
       passwordChangedAt: input.passwordChangedAt ?? null,
+      createdAt: input.createdAt ?? new Date(),
+      lastLoginAt: input.lastLoginAt ?? null,
     };
     this.users.set(user.id, user);
     return user;
@@ -411,11 +502,12 @@ export class InMemoryAuthStore implements AuthStore {
     }
   }
 
-  async recordLoginSuccess(userId: string): Promise<void> {
+  async recordLoginSuccess(userId: string, now?: Date): Promise<void> {
     const user = this.users.get(userId);
     if (!user) return;
     user.failedLoginCount = 0;
     user.lockedUntil = null;
+    user.lastLoginAt = now ?? new Date();
   }
 
   async getLatestAuditHash(): Promise<string | null> {

@@ -159,3 +159,50 @@ export function updateWorkspaceMemberRole(
     body: JSON.stringify({ role }),
   });
 }
+
+export interface CompanyAdminEmployee {
+  id: string;
+  email: string;
+  displayName: string | null;
+  role: UserRole;
+  isActive: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface CompanyAdminMetrics {
+  totalEmployees: number;
+  ownerCount: number;
+  adminCount: number;
+  activeEmployees: number;
+  pendingInvitationsCount: number;
+}
+
+export interface CompanyAdminActivityEntry {
+  id: string;
+  action: string;
+  outcome: 'success' | 'failure' | 'denied';
+  actorId: string | null;
+  actorEmail: string | null;
+  actorName: string | null;
+  resourceType: string | null;
+  resourceId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface CompanyAdminOverview {
+  company: {
+    id: string;
+    name: string;
+    domain: string | null;
+    createdAt: string;
+  };
+  metrics: CompanyAdminMetrics;
+  employees: CompanyAdminEmployee[];
+  recentActivity: CompanyAdminActivityEntry[];
+}
+
+export function fetchCompanyAdminOverview(): Promise<ApiResult<CompanyAdminOverview>> {
+  return request<CompanyAdminOverview>(`${API_PREFIX}/workspace/company-admin`);
+}

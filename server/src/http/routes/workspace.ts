@@ -55,6 +55,18 @@ export function createWorkspaceRouter(options: WorkspaceRouterOptions): Router {
     res.status(200).json(workspace);
   });
 
+  /** GET /api/workspace/company-admin — dedicated company administration overview (owner/admin). */
+  router.get('/company-admin', guard, async (req, res) => {
+    const actor = requireAuthContext(req).user;
+    if (actor.role !== 'owner' && actor.role !== 'admin') {
+      res.status(403).json({ error: 'Only workspace owners and company administrators can access company administration.' });
+      return;
+    }
+    const overview = await service.getCompanyAdminOverview(actor);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json(overview);
+  });
+
   /** POST /api/workspace — create a company workspace for a personal user. */
   router.post('/', guard, async (req, res) => {
     const actor = requireAuthContext(req).user;

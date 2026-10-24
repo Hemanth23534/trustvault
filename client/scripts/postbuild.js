@@ -22,6 +22,7 @@ const routes = [
   'workspace/members',
   'workspace/settings',
   'workspace/create',
+  'company-admin',
   'documents',
   'history',
   'admin',

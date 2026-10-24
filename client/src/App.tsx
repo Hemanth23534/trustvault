@@ -4,6 +4,7 @@ import { AppShell } from './components/layout/AppShell';
 import { RequireAuth, RequireRole } from './components/layout/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { AdminPage } from './pages/AdminPage';
+import { CompanyAdminPage } from './pages/CompanyAdminPage';
 import { CreateWorkspacePage } from './pages/CreateWorkspacePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { DocumentDetailPage } from './pages/DocumentDetailPage';
@@ -41,6 +42,7 @@ export function App(): JSX.Element {
                 <Route path="history" element={<HistoryPage />} />
               </Route>
               <Route element={<RequireRole roles={['owner', 'admin']} />}>
+                <Route path="company-admin" element={<CompanyAdminPage />} />
                 <Route path="workspace/members" element={<WorkspaceMembersPage />} />
               </Route>
               <Route element={<RequireRole roles={['owner']} />}>

@@ -19,6 +19,7 @@ import {
 import { createDocumentsRouter } from './http/routes/documents.js';
 import { createHealthRouter, type DatabasePing } from './http/routes/health.js';
 import { createWorkspaceRouter } from './http/routes/workspace.js';
+import { createCompanyAdminRouter } from './http/routes/company-admin.js';
 import { AuthService, normalizeEmail } from './auth/auth-service.js';
 import { MySqlAuthStore, type AuthStore } from './auth/auth-store.js';
 import { createRateLimiter } from './auth/rate-limit.js';
@@ -225,6 +226,11 @@ export function createApp(options: CreateAppOptions): Express {
   app.use(
     `${API_PREFIX}/workspace`,
     createWorkspaceRouter({ env, service: authService, logger }),
+  );
+
+  app.use(
+    `${API_PREFIX}/company-admin`,
+    createCompanyAdminRouter({ env, service: authService, logger }),
   );
 
   // Insights and sharing must be mounted before the CRUD router so /stats is

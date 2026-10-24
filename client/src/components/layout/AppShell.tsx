@@ -34,6 +34,13 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/documents/new', label: 'Upload', icon: <IconUpload />, roles: ['admin', 'owner', 'editor'] },
   { to: '/history', label: 'Access history', icon: <IconActivity />, roles: ['platform_admin', 'admin', 'owner'] },
   {
+    to: '/company-admin',
+    label: 'Company Administration',
+    icon: <IconBuilding />,
+    roles: ['admin', 'owner'],
+    requireCompany: true,
+  },
+  {
     to: '/workspace/members',
     label: 'Members & Invites',
     icon: <IconUsers />,
@@ -58,6 +65,7 @@ function pageTitle(pathname: string, userRole?: string): string {
   if (pathname.startsWith('/documents/')) return 'Document details';
   if (pathname === '/history') return 'Access history';
   if (pathname === '/workspace/create') return 'Create company workspace';
+  if (pathname === '/company-admin') return 'Company Administration';
   if (pathname === '/workspace/members') return 'Members & invitations';
   if (pathname === '/workspace/settings') return 'Workspace settings';
   if (pathname === '/admin' || pathname === '/platform-admin') {

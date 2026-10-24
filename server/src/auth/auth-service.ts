@@ -22,7 +22,7 @@ import {
   newId,
   truncate,
 } from './tokens.js';
-import type { AuthContext, AuthUser } from './types.js';
+import type { AuthContext, AuthUser, CompanyAdminOverview } from './types.js';
 
 export class AuthError extends AppError {
   constructor(statusCode: number, code: string, message: string, details?: unknown) {
@@ -745,6 +745,16 @@ export class AuthService {
     }
     const company = await this.store.findCompanyById(actor.companyId);
     return { company, isPersonal: false };
+  }
+
+  async getCompanyAdminOverview(actor: AuthUser): Promise<CompanyAdminOverview> {
+    if (!actor.companyId) {
+      throw new AuthError(400, 'NO_COMPANY_WORKSPACE', 'You do not belong to a company workspace.');
+    }
+    if (actor.role !== 'owner' && actor.role !== 'admin') {
+      throw new AuthError(403, 'FORBIDDEN', 'Only workspace owners and company administrators can access company administration.');
+    }
+    return this.store.getCompanyAdminOverview(actor.companyId);
   }
 
   async updateWorkspaceSettings(

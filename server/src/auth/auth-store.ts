@@ -5,13 +5,23 @@ import {
   computeEntryHash,
   GENESIS_HASH,
 } from './audit-crypto.js';
-import type { AuthUser, Company, CompanyInvitation, UserRole } from './types.js';
+import type {
+  AuthUser,
+  Company,
+  CompanyAdminActivityEntry,
+  CompanyAdminEmployee,
+  CompanyAdminOverview,
+  CompanyInvitation,
+  UserRole,
+} from './types.js';
 
 export interface UserWithCredentials extends AuthUser {
   passwordHash: string;
   failedLoginCount: number;
   lockedUntil: Date | null;
   passwordChangedAt: Date | null;
+  createdAt?: Date;
+  lastLoginAt?: Date | null;
 }
 
 export interface SessionUser extends AuthUser {
@@ -134,6 +144,7 @@ export interface AuthStore {
   createUser(input: CreateUserInput): Promise<UserWithCredentials>;
   deleteUserAccount(userId: string): Promise<boolean>;
   listCompanyUsers(companyId: string): Promise<AuthUser[]>;
+  getCompanyAdminOverview(companyId: string): Promise<CompanyAdminOverview>;
   updateUserRoleAndCompany(userId: string, companyId: string | null, role: UserRole): Promise<void>;
   removeCompanyMember(userId: string, companyId: string): Promise<void>;
   createInvitation(input: {
@@ -192,11 +203,26 @@ interface UserRow extends RowDataPacket {
   company_name?: string | null;
   role: UserRole;
   is_active: number;
+  created_at?: Date;
+  last_login_at?: Date | null;
   deleted_at?: Date | null;
   password_hash: string;
   failed_login_count: number;
   locked_until: Date | null;
   password_changed_at: Date | null;
+}
+
+interface CompanyActivityRow extends RowDataPacket {
+  id: string | number;
+  user_id: string | null;
+  actor_email: string | null;
+  actor_name: string | null;
+  action: string;
+  outcome: 'success' | 'failure' | 'denied';
+  resource_type: string | null;
+  resource_id: string | null;
+  metadata: unknown;
+  created_at: Date;
 }
 
 interface IncidentRow extends RowDataPacket {
@@ -310,6 +336,8 @@ function toUser(row: UserRow): UserWithCredentials {
     failedLoginCount: Number(row.failed_login_count),
     lockedUntil: toDateOrNull(row.locked_until),
     passwordChangedAt: toDateOrNull(row.password_changed_at),
+    createdAt: row.created_at ? toDate(row.created_at) : undefined,
+    lastLoginAt: row.last_login_at ? toDate(row.last_login_at) : null,
   };
 }
 
@@ -414,6 +442,8 @@ export class MySqlAuthStore implements AuthStore {
       failedLoginCount: 0,
       lockedUntil: null,
       passwordChangedAt: null,
+      createdAt: input.createdAt,
+      lastLoginAt: null,
     };
   }
 
@@ -440,6 +470,100 @@ export class MySqlAuthStore implements AuthStore {
       role: r.role,
       isActive: r.is_active === 1,
     }));
+  }
+
+  async getCompanyAdminOverview(companyId: string): Promise<CompanyAdminOverview> {
+    const company = await this.findCompanyById(companyId);
+    if (!company) {
+      throw new Error('Workspace not found');
+    }
+
+    const [empRows] = await withDbTimeout(
+      this.pool.execute<UserRow[]>(
+        `SELECT u.id, u.email, u.display_name, u.role, u.is_active, u.created_at, u.last_login_at
+           FROM users u
+          WHERE u.company_id = ?
+          ORDER BY u.created_at ASC, u.email ASC`,
+        [companyId],
+      ),
+      5_000,
+      'getCompanyAdminOverview:employees',
+    );
+
+    const [invRows] = await withDbTimeout(
+      this.pool.execute<CountRow[]>(
+        `SELECT COUNT(*) AS total
+           FROM company_invitations
+          WHERE company_id = ?
+            AND status = 'pending'
+            AND expires_at > UTC_TIMESTAMP(3)`,
+        [companyId],
+      ),
+      5_000,
+      'getCompanyAdminOverview:invitations',
+    );
+
+    const [actRows] = await withDbTimeout(
+      this.pool.query<CompanyActivityRow[]>(
+        `SELECT a.id, a.user_id, a.action, a.outcome, a.resource_type, a.resource_id,
+                a.metadata, a.created_at, u.email AS actor_email, u.display_name AS actor_name
+           FROM audit_logs a
+           LEFT JOIN users u ON u.id = a.user_id
+          WHERE a.company_id = ?
+          ORDER BY a.id DESC
+          LIMIT 20`,
+        [companyId],
+      ),
+      5_000,
+      'getCompanyAdminOverview:activity',
+    );
+
+    const employees: CompanyAdminEmployee[] = empRows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      displayName: r.display_name,
+      role: r.role,
+      isActive: r.is_active === 1 && !r.deleted_at,
+      createdAt: r.created_at ? toDate(r.created_at) : company.createdAt,
+      lastLoginAt: r.last_login_at ? toDate(r.last_login_at) : null,
+    }));
+
+    const totalEmployees = employees.length;
+    const ownerCount = employees.filter((e) => e.role === 'owner').length;
+    const adminCount = employees.filter((e) => e.role === 'admin').length;
+    const activeEmployees = employees.filter((e) => e.isActive).length;
+    const pendingInvitationsCount = Number(invRows[0]?.total ?? 0);
+
+    const recentActivity: CompanyAdminActivityEntry[] = actRows.map((r) => ({
+      id: String(r.id),
+      action: r.action,
+      outcome: r.outcome,
+      actorId: r.user_id,
+      actorEmail: r.actor_email ?? null,
+      actorName: r.actor_name ?? null,
+      resourceType: r.resource_type ?? null,
+      resourceId: r.resource_id ?? null,
+      metadata: (parseMetadata(r.metadata) as Record<string, unknown>) ?? null,
+      createdAt: toDate(r.created_at).toISOString(),
+    }));
+
+    return {
+      company: {
+        id: company.id,
+        name: company.name,
+        domain: company.domain ?? null,
+        createdAt: company.createdAt,
+      },
+      metrics: {
+        totalEmployees,
+        ownerCount,
+        adminCount,
+        activeEmployees,
+        pendingInvitationsCount,
+      },
+      employees,
+      recentActivity,
+    };
   }
 
   async updateUserRoleAndCompany(userId: string, companyId: string | null, role: UserRole): Promise<void> {
