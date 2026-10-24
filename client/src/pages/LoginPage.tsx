@@ -256,6 +256,36 @@ export function LoginPage(): JSX.Element {
               <code className="mono">README.md</code> or run <code className="mono">npm run seed</code>.
             </p>
           </div>
+
+          <div
+            style={{
+              marginTop: '1.25rem',
+              padding: '0.875rem 1rem',
+              borderRadius: '8px',
+              background: 'rgba(56, 189, 248, 0.05)',
+              border: '1px solid rgba(56, 189, 248, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+            }}
+          >
+            <div>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Creator & Platform Access
+              </span>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                Platform Administrator governance portal
+              </p>
+            </div>
+            <Link
+              to="/platform-admin/login"
+              className="button button-secondary button-sm"
+              style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', whiteSpace: 'nowrap' }}
+            >
+              Platform Login →
+            </Link>
+          </div>
         </div>
 
         <p className="login-footnote">

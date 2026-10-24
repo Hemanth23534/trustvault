@@ -26,7 +26,9 @@
     "start": "npm run start --workspace @trustvault/server",
     "migrate": "npm run migrate --workspace @trustvault/server",
     "migrate:status": "npm run migrate:status --workspace @trustvault/server",
-    "migrate:dry": "npm run migrate:dry --workspace @trustvault/server"
+    "migrate:dry": "npm run migrate:dry --workspace @trustvault/server",
+    "seed": "npm run seed --workspace @trustvault/server",
+    "promote:platform-admin": "npm run promote:platform-admin --workspace @trustvault/server --"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"

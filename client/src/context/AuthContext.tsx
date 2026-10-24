@@ -25,6 +25,7 @@ export type AuthStatus = 'checking' | 'anonymous' | 'authenticated';
 export interface LoginOutcome {
   ok: boolean;
   message?: string;
+  user?: AuthUser;
 }
 
 export interface AuthContextValue {
@@ -129,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       setSession(result.data.session);
       setNotice(null);
       setStatus('authenticated');
-      return { ok: true };
+      return { ok: true, user: result.data.user };
     } catch (error) {
       return {
         ok: false,

@@ -26,6 +26,13 @@ const userStatusSchema = z.object({
   isActive: z.boolean(),
 });
 
+const userFilterSchema = z.object({
+  companyId: z.string().trim().optional(),
+  search: z.string().trim().max(100).optional(),
+  role: z.string().trim().optional(),
+  status: z.enum(['active', 'disabled']).optional(),
+});
+
 export interface AdminRouterOptions {
   env: Env;
   service: AuthService;
@@ -43,7 +50,7 @@ export interface AdminRouterOptions {
 export function createAdminRouter(options: AdminRouterOptions): Router {
   const { env, service, activityService } = options;
   const router = Router();
-  const guard = [requireAuth({ service, env }), requireRole('admin')];
+  const guard = [requireAuth({ service, env }), requireRole('platform_admin')];
 
   /** GET /api/admin/audit-logs/verify — cryptographic hash chain and checkpoint verification. */
   router.get('/audit-logs/verify', ...guard, async (_req, res) => {
@@ -125,12 +132,36 @@ export function createAdminRouter(options: AdminRouterOptions): Router {
     res.status(200).json({ overview });
   });
 
-  /** GET /api/admin/users — accounts with document counts for administration. */
+  /** GET /api/admin/companies — list all company workspaces with employee counts. */
+  router.get('/companies', ...guard, async (req, res) => {
+    const actor = req.auth?.user;
+    if (!actor) return;
+
+    const companies = await activityService.adminCompanies(actor);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json({ companies });
+  });
+
+  /** GET /api/admin/companies/:id/employees — list employees belonging to a specific company workspace. */
+  router.get('/companies/:id/employees', ...guard, async (req, res) => {
+    const actor = req.auth?.user;
+    if (!actor) return;
+
+    const companyId = String(req.params.id ?? '');
+    const employees = await activityService.adminUsers(actor, { companyId });
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json({ employees });
+  });
+
+  /** GET /api/admin/users — all registered employees across all companies, with search & filtering. */
   router.get('/users', ...guard, async (req, res) => {
     const actor = req.auth?.user;
     if (!actor) return;
 
-    const users = await activityService.adminUsers(actor);
+    const parsed = userFilterSchema.safeParse(req.query);
+    const filters = parsed.success ? parsed.data : undefined;
+
+    const users = await activityService.adminUsers(actor, filters);
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).json({ users });
   });

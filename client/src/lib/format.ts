@@ -69,8 +69,12 @@ export function actionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action.replace(/[._]/g, ' ');
 }
 
-export function roleLabel(role: 'admin' | 'owner' | 'editor' | 'viewer'): string {
-  return role === 'admin' ? 'Administrator' : role === 'owner' ? 'Owner' : role === 'editor' ? 'Editor' : 'Viewer';
+export function roleLabel(role: 'platform_admin' | 'admin' | 'owner' | 'editor' | 'viewer' | string): string {
+  if (role === 'platform_admin') return 'Platform Administrator';
+  if (role === 'admin') return 'Company Admin';
+  if (role === 'owner') return 'Company Owner';
+  if (role === 'editor') return 'Editor';
+  return 'Viewer';
 }
 
 /** Short, human-readable summary of an audit event's metadata. */

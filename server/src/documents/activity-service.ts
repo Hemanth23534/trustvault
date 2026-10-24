@@ -2,10 +2,11 @@ import type { AuthUser } from '../auth/types.js';
 import { normalizeEmail } from '../auth/auth-service.js';
 import type { Logger } from '../config/logger.js';
 import { AppError } from '../http/errors.js';
-import type { ActivityPage, DocumentActivityStore, PageRequest } from './activity-store.js';
+import type { ActivityPage, DocumentActivityStore, PageRequest, AdminUserFilters } from './activity-store.js';
 import { canManage, type DocumentAuditSink, type DocumentRequestContext } from './document-service.js';
 import type { DocumentStore, DocumentViewer } from './document-store.js';
 import type {
+  AdminCompanyEntry,
   AdminOverview,
   AdminUserEntry,
   DocumentPermissionEntry,
@@ -210,21 +211,26 @@ export class DocumentActivityService {
   }
 
   async adminOverview(actor: AuthUser): Promise<AdminOverview> {
-    this.requireAdmin(actor);
+    this.requirePlatformAdmin(actor);
     return this.activity.adminOverview();
   }
 
-  async adminUsers(actor: AuthUser): Promise<AdminUserEntry[]> {
-    this.requireAdmin(actor);
-    return this.activity.adminUsers();
+  async adminUsers(actor: AuthUser, filters?: AdminUserFilters): Promise<AdminUserEntry[]> {
+    this.requirePlatformAdmin(actor);
+    return this.activity.adminUsers(filters);
   }
 
-  private requireAdmin(actor: AuthUser): void {
-    if (actor.role !== 'admin') {
+  async adminCompanies(actor: AuthUser): Promise<AdminCompanyEntry[]> {
+    this.requirePlatformAdmin(actor);
+    return this.activity.adminCompanies();
+  }
+
+  private requirePlatformAdmin(actor: AuthUser): void {
+    if (actor.role !== 'platform_admin') {
       throw new AppError({
         statusCode: 403,
         code: 'FORBIDDEN',
-        message: 'Administrator access is required.',
+        message: 'Platform administrator access is required.',
       });
     }
   }

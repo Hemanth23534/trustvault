@@ -11,6 +11,7 @@ import { DocumentsPage } from './pages/DocumentsPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { PlatformAdminLoginPage } from './pages/PlatformAdminLoginPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { RegisterPage } from './pages/RegisterPage';
 import { UploadPage } from './pages/UploadPage';
@@ -23,6 +24,7 @@ export function App(): JSX.Element {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/platform-admin/login" element={<PlatformAdminLoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/accept-invite" element={<RegisterPage />} />
           <Route element={<RequireAuth />}>
@@ -35,15 +37,18 @@ export function App(): JSX.Element {
               <Route element={<RequireRole roles={['owner', 'admin', 'editor']} />}>
                 <Route path="documents/new" element={<UploadPage />} />
               </Route>
-              <Route element={<RequireRole roles={['owner', 'admin']} />}>
+              <Route element={<RequireRole roles={['platform_admin', 'owner', 'admin']} />}>
                 <Route path="history" element={<HistoryPage />} />
+              </Route>
+              <Route element={<RequireRole roles={['owner', 'admin']} />}>
                 <Route path="workspace/members" element={<WorkspaceMembersPage />} />
               </Route>
               <Route element={<RequireRole roles={['owner']} />}>
                 <Route path="workspace/settings" element={<WorkspaceSettingsPage />} />
               </Route>
-              <Route element={<RequireRole roles={['admin']} />}>
+              <Route element={<RequireRole roles={['platform_admin']} />}>
                 <Route path="admin" element={<AdminPage />} />
+                <Route path="platform-admin" element={<AdminPage />} />
               </Route>
               <Route path="profile" element={<ProfilePage />} />
               <Route path="*" element={<NotFoundPage />} />

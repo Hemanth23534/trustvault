@@ -58,9 +58,9 @@ export function isPathAuthorized(
     return true;
   }
 
-  // Access history: workspace owners and platform administrators
+  // Access history: workspace owners, company admins, and platform administrators
   if (normalized === '/history') {
-    return user.role === 'owner' || user.role === 'admin';
+    return user.role === 'owner' || user.role === 'admin' || user.role === 'platform_admin';
   }
 
   // Workspace members: workspace owners and administrators of a company
@@ -74,8 +74,13 @@ export function isPathAuthorized(
   }
 
   // Platform administration: platform administrators only
-  if (normalized === '/admin' || normalized.startsWith('/admin/')) {
-    return user.role === 'admin';
+  if (
+    normalized === '/admin' ||
+    normalized.startsWith('/admin/') ||
+    normalized === '/platform-admin' ||
+    normalized.startsWith('/platform-admin/')
+  ) {
+    return user.role === 'platform_admin';
   }
 
   // Any unrecognized route is not authorized
@@ -86,7 +91,9 @@ export function isPathAuthorized(
  * Returns the default post-auth landing destination for an authenticated user.
  */
 export function getDefaultDestination(user?: AuthUser | null): string {
-  void user;
+  if (user?.role === 'platform_admin') {
+    return '/admin';
+  }
   return '/dashboard';
 }
 

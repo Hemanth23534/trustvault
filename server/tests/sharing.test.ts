@@ -2,6 +2,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { hashPassword } from '../src/auth/password.js';
+import type { UserRole } from '../src/auth/types.js';
 import { InMemoryDocumentStorage } from '../src/documents/storage.js';
 import { InMemoryAuthStore } from './support/in-memory-auth-store.js';
 import { InMemoryDocumentActivityStore } from './support/in-memory-activity-store.js';
@@ -39,7 +40,7 @@ function buildStack() {
 
 async function createUser(
   stack: ReturnType<typeof buildStack>,
-  options: { email: string; role?: 'admin' | 'owner' | 'viewer'; displayName?: string },
+  options: { email: string; role?: UserRole; displayName?: string },
 ) {
   const passwordHash = await hashPassword(PASSWORD, 4);
   const user = stack.authStore.addUser({
@@ -431,7 +432,7 @@ describe('admin dashboards', () => {
   it('returns overview counters and the user directory to admins only', async () => {
     const stack = buildStack();
     await createUser(stack, { email: 'owner@trustvault.local', role: 'owner' });
-    await createUser(stack, { email: 'admin@trustvault.local', role: 'admin' });
+    await createUser(stack, { email: 'admin@trustvault.local', role: 'platform_admin' });
 
     const ownerSession = await login(stack, 'owner@trustvault.local');
     const adminSession = await login(stack, 'admin@trustvault.local');

@@ -2,6 +2,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { hashPassword } from '../src/auth/password.js';
+import type { UserRole } from '../src/auth/types.js';
 import { InMemoryDocumentStorage } from '../src/documents/storage.js';
 import { InMemoryAuthStore } from './support/in-memory-auth-store.js';
 import { InMemoryDocumentActivityStore } from './support/in-memory-activity-store.js';
@@ -40,7 +41,7 @@ function buildStack() {
 
 async function createUser(
   stack: ReturnType<typeof buildStack>,
-  options: { email: string; role?: 'admin' | 'owner' | 'viewer'; displayName?: string },
+  options: { email: string; role?: UserRole; displayName?: string },
 ) {
   const passwordHash = await hashPassword(PASSWORD, 4);
   const user = stack.authStore.addUser({
@@ -302,7 +303,7 @@ describe('TrustVault Audit Trail and Administrator Governance', () => {
 
   it('enforces ledger immutability and catches unauthorized mutations via cryptographic hash chaining', async () => {
     const stack = buildStack();
-    const admin = await createUser(stack, { email: 'admin@trustvault.local', role: 'admin' });
+    const admin = await createUser(stack, { email: 'admin@trustvault.local', role: 'platform_admin' });
     const adminSession = await login(stack, admin.email);
 
     // Verify initial integrity of the ledger
@@ -356,7 +357,7 @@ describe('TrustVault Audit Trail and Administrator Governance', () => {
 
   it('supports admin search, filtering, account deactivation, and prevents admin document content access', async () => {
     const stack = buildStack();
-    const admin = await createUser(stack, { email: 'admin@trustvault.local', role: 'admin' });
+    const admin = await createUser(stack, { email: 'admin@trustvault.local', role: 'platform_admin' });
     const owner = await createUser(stack, { email: 'alice@trustvault.local', role: 'owner' });
     const targetUser = await createUser(stack, { email: 'bob@trustvault.local', role: 'viewer' });
 

@@ -1,6 +1,8 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { UserRole } from '../auth/types.js';
 import type {
   ActivityEntry,
+  AdminCompanyEntry,
   AdminOverview,
   AdminUserEntry,
   DocumentCategory,
@@ -8,13 +10,20 @@ import type {
   DocumentStats,
   PermissionRole,
 } from './types.js';
+
+export interface AdminUserFilters {
+  companyId?: string;
+  search?: string;
+  role?: string;
+  status?: 'active' | 'disabled';
+}
 import type { DocumentViewer } from './document-store.js';
 
 export interface DirectoryUser {
   id: string;
   email: string;
   displayName: string | null;
-  role: 'owner' | 'admin' | 'editor' | 'viewer';
+  role: UserRole;
   isActive: boolean;
   companyId?: string | null;
 }
@@ -53,7 +62,8 @@ export interface DocumentActivityStore {
   historyForDocument(documentId: string, page: PageRequest): Promise<ActivityPage>;
   historyForManager(viewer: DocumentViewer, page: PageRequest): Promise<ActivityPage>;
   adminOverview(): Promise<AdminOverview>;
-  adminUsers(): Promise<AdminUserEntry[]>;
+  adminUsers(filters?: AdminUserFilters): Promise<AdminUserEntry[]>;
+  adminCompanies(): Promise<AdminCompanyEntry[]>;
 }
 
 interface StatsRow extends RowDataPacket {
@@ -106,6 +116,7 @@ interface CountRow extends RowDataPacket {
 interface OverviewRow extends RowDataPacket {
   users: number | string;
   active_users: number | string;
+  disabled_users?: number | string;
 }
 
 interface DocumentOverviewRow extends RowDataPacket {
@@ -122,10 +133,22 @@ interface AdminUserRow extends RowDataPacket {
   id: string;
   email: string;
   display_name: string | null;
-  role: 'admin' | 'owner' | 'viewer';
+  company_id: string | null;
+  company_name: string | null;
+  role: 'platform_admin' | 'owner' | 'admin' | 'editor' | 'viewer';
   is_active: number;
   created_at: Date;
   last_login_at: Date | null;
+  document_count: number | string;
+}
+
+interface AdminCompanyRow extends RowDataPacket {
+  id: string;
+  name: string;
+  domain: string | null;
+  created_at: Date;
+  employee_count: number | string;
+  active_count: number | string;
   document_count: number | string;
 }
 
@@ -374,11 +397,12 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
   }
 
   async adminOverview(): Promise<AdminOverview> {
-    const [[userRows], [documentRows], [sessionRows], [auditRows], [grantRows]] =
+    const [[userRows], [companyRows], [documentRows], [sessionRows], [auditRows], [grantRows]] =
       await Promise.all([
         this.pool.execute<OverviewRow[]>(
-          'SELECT COUNT(*) AS users, COALESCE(SUM(is_active = 1), 0) AS active_users FROM users',
+          'SELECT COUNT(*) AS users, COALESCE(SUM(is_active = 1), 0) AS active_users, COALESCE(SUM(is_active = 0), 0) AS disabled_users FROM users',
         ),
+        this.pool.execute<SingleCountRow[]>('SELECT COUNT(*) AS total FROM companies'),
         this.pool.execute<DocumentOverviewRow[]>(
           `SELECT COUNT(*) AS documents,
                   COALESCE(SUM(deleted_at IS NOT NULL), 0) AS deleted_documents,
@@ -394,9 +418,18 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
         this.pool.execute<SingleCountRow[]>('SELECT COUNT(*) AS total FROM document_permissions'),
       ]);
 
+    const totalUsers = Number(userRows[0]?.users ?? 0);
+    const activeUsers = Number(userRows[0]?.active_users ?? 0);
+    const disabledUsers = Number(userRows[0]?.disabled_users ?? 0);
+    const totalCompanies = Number(companyRows[0]?.total ?? 0);
+
     return {
-      users: Number(userRows[0]?.users ?? 0),
-      activeUsers: Number(userRows[0]?.active_users ?? 0),
+      totalEmployees: totalUsers,
+      totalCompanies,
+      activeAccounts: activeUsers,
+      disabledAccounts: disabledUsers,
+      users: totalUsers,
+      activeUsers,
       documents: Number(documentRows[0]?.documents ?? 0),
       deletedDocuments: Number(documentRows[0]?.deleted_documents ?? 0),
       totalBytes: Number(documentRows[0]?.total_bytes ?? 0),
@@ -406,24 +439,83 @@ export class MySqlDocumentActivityStore implements DocumentActivityStore {
     };
   }
 
-  async adminUsers(): Promise<AdminUserEntry[]> {
+  async adminUsers(filters?: AdminUserFilters): Promise<AdminUserEntry[]> {
+    const conditions: string[] = [];
+    const params: string[] = [];
+
+    if (filters?.companyId) {
+      if (filters.companyId === 'none' || filters.companyId === 'personal') {
+        conditions.push('u.company_id IS NULL');
+      } else {
+        conditions.push('u.company_id = ?');
+        params.push(filters.companyId);
+      }
+    }
+
+    if (filters?.search && filters.search.trim()) {
+      conditions.push('(LOWER(u.email) LIKE ? OR LOWER(u.display_name) LIKE ?)');
+      const term = `%${filters.search.trim().toLowerCase()}%`;
+      params.push(term, term);
+    }
+
+    if (filters?.role && filters.role.trim()) {
+      conditions.push('u.role = ?');
+      params.push(filters.role.trim());
+    }
+
+    if (filters?.status) {
+      if (filters.status === 'active') {
+        conditions.push('u.is_active = 1');
+      } else if (filters.status === 'disabled') {
+        conditions.push('u.is_active = 0');
+      }
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
     const [rows] = await this.pool.execute<AdminUserRow[]>(
-      `SELECT u.id, u.email, u.display_name, u.role, u.is_active,
-              u.created_at, u.last_login_at,
+      `SELECT u.id, u.email, u.display_name, u.company_id, c.name AS company_name,
+              u.role, u.is_active, u.created_at, u.last_login_at,
               (SELECT COUNT(*) FROM documents d
                 WHERE d.owner_id = u.id AND d.deleted_at IS NULL) AS document_count
          FROM users u
+         LEFT JOIN companies c ON c.id = u.company_id
+         ${where}
         ORDER BY u.created_at ASC, u.email ASC`,
+      params,
     );
 
     return rows.map((row) => ({
       id: row.id,
       email: row.email,
       displayName: row.display_name,
+      companyId: row.company_id ?? null,
+      companyName: row.company_name ?? null,
       role: row.role,
       isActive: row.is_active === 1,
       createdAt: toDate(row.created_at),
       lastLoginAt: row.last_login_at === null ? null : toDate(row.last_login_at),
+      documentCount: Number(row.document_count),
+    }));
+  }
+
+  async adminCompanies(): Promise<AdminCompanyEntry[]> {
+    const [rows] = await this.pool.execute<AdminCompanyRow[]>(
+      `SELECT c.id, c.name, c.domain, c.created_at,
+              (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id) AS employee_count,
+              (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.is_active = 1) AS active_count,
+              (SELECT COUNT(*) FROM documents d WHERE d.company_id = c.id AND d.deleted_at IS NULL) AS document_count
+         FROM companies c
+        ORDER BY c.name ASC`,
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      domain: row.domain,
+      createdAt: toDate(row.created_at),
+      employeeCount: Number(row.employee_count),
+      activeCount: Number(row.active_count),
       documentCount: Number(row.document_count),
     }));
   }

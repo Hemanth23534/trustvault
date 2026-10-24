@@ -1,6 +1,9 @@
-/** The product roles: owner (full workspace control), admin (member/document management), editor (edit own and granted), viewer (read/download). */
-export const USER_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
+/** The product roles: platform_admin (site-wide governance), owner (full workspace control), admin (company-level member management), editor (edit own and granted), viewer (read/download). */
+export const USER_ROLES = ['platform_admin', 'owner', 'admin', 'editor', 'viewer'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
+
+export const COMPANY_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
+export type CompanyRole = (typeof COMPANY_ROLES)[number];
 
 /** Account-level role check that never trusts client input. */
 export function isUserRole(value: unknown): value is UserRole {

@@ -61,18 +61,33 @@ describe('routes utility', () => {
       expect(isPathAuthorized('/workspace/create', personalOwner)).toBe(true);
     });
 
-    it('allows administrators to access /admin and general areas but forbids owner-only settings', () => {
-      const admin = makeUser({ role: 'admin' });
+    it('allows platform administrators to access /admin and general areas but forbids owner-only settings', () => {
+      const platformAdmin = makeUser({ role: 'platform_admin' });
 
-      expect(isPathAuthorized('/admin', admin)).toBe(true);
-      expect(isPathAuthorized('/admin/users', admin)).toBe(true);
-      expect(isPathAuthorized('/dashboard', admin)).toBe(true);
-      expect(isPathAuthorized('/documents', admin)).toBe(true);
-      expect(isPathAuthorized('/documents/new', admin)).toBe(true);
-      expect(isPathAuthorized('/history', admin)).toBe(true);
+      expect(isPathAuthorized('/admin', platformAdmin)).toBe(true);
+      expect(isPathAuthorized('/admin/users', platformAdmin)).toBe(true);
+      expect(isPathAuthorized('/platform-admin', platformAdmin)).toBe(true);
+      expect(isPathAuthorized('/dashboard', platformAdmin)).toBe(true);
+      expect(isPathAuthorized('/documents', platformAdmin)).toBe(true);
+      expect(isPathAuthorized('/history', platformAdmin)).toBe(true);
 
       // Workspace settings is owner-only
-      expect(isPathAuthorized('/workspace/settings', admin)).toBe(false);
+      expect(isPathAuthorized('/workspace/settings', platformAdmin)).toBe(false);
+    });
+
+    it('allows company admins to access company management but strictly forbids /admin', () => {
+      const companyAdmin = makeUser({ role: 'admin', companyId: 'comp-1' });
+
+      expect(isPathAuthorized('/workspace/members', companyAdmin)).toBe(true);
+      expect(isPathAuthorized('/dashboard', companyAdmin)).toBe(true);
+      expect(isPathAuthorized('/documents', companyAdmin)).toBe(true);
+      expect(isPathAuthorized('/documents/new', companyAdmin)).toBe(true);
+      expect(isPathAuthorized('/history', companyAdmin)).toBe(true);
+
+      // Platform admin portal must be strictly forbidden for company admins
+      expect(isPathAuthorized('/admin', companyAdmin)).toBe(false);
+      expect(isPathAuthorized('/admin/users', companyAdmin)).toBe(false);
+      expect(isPathAuthorized('/platform-admin', companyAdmin)).toBe(false);
     });
 
     it('enforces editor and viewer permission boundaries', () => {
@@ -100,10 +115,16 @@ describe('routes utility', () => {
       expect(destination).toBe('/dashboard');
     });
 
-    it('allows administrators to continue to /admin when requested', () => {
-      const admin = makeUser({ role: 'admin' });
-      const destination = getPostAuthRedirect('/admin', admin);
+    it('allows platform administrators to continue to /admin when requested', () => {
+      const platformAdmin = makeUser({ role: 'platform_admin' });
+      const destination = getPostAuthRedirect('/admin', platformAdmin);
       expect(destination).toBe('/admin');
+    });
+
+    it('redirects company admins to /dashboard when /admin was requested', () => {
+      const companyAdmin = makeUser({ role: 'admin' });
+      const destination = getPostAuthRedirect('/admin', companyAdmin);
+      expect(destination).toBe('/dashboard');
     });
 
     it('redirects to the authorized requested path for permitted pages', () => {
@@ -132,8 +153,11 @@ describe('routes utility', () => {
   });
 
   describe('getDefaultDestination', () => {
-    it('returns /dashboard', () => {
+    it('returns /dashboard for company accounts and /admin for platform admins', () => {
       expect(getDefaultDestination()).toBe('/dashboard');
+      expect(getDefaultDestination(makeUser({ role: 'owner' }))).toBe('/dashboard');
+      expect(getDefaultDestination(makeUser({ role: 'admin' }))).toBe('/dashboard');
+      expect(getDefaultDestination(makeUser({ role: 'platform_admin' }))).toBe('/admin');
     });
   });
 });

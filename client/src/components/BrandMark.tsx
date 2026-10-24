@@ -1,12 +1,12 @@
 import type { JSX } from 'react';
 
-export function BrandMark(): JSX.Element {
+export function BrandMark({ size = 28 }: { size?: number } = {}): JSX.Element {
   return (
     <svg
       className="brand-mark"
       viewBox="0 0 64 64"
-      width="28"
-      height="28"
+      width={size}
+      height={size}
       aria-hidden="true"
       focusable="false"
     >

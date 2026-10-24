@@ -32,7 +32,7 @@ const DEMO_ACCOUNTS: readonly DemoAccount[] = [
   {
     email: 'admin@trustvault.local',
     displayName: 'Ava Admin',
-    role: 'admin',
+    role: 'platform_admin',
     passwordEnv: 'SEED_ADMIN_PASSWORD',
   },
   {

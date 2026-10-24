@@ -32,7 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: <IconDashboard />, end: true },
   { to: '/documents', label: 'Documents', icon: <IconFile /> },
   { to: '/documents/new', label: 'Upload', icon: <IconUpload />, roles: ['admin', 'owner', 'editor'] },
-  { to: '/history', label: 'Access history', icon: <IconActivity />, roles: ['admin', 'owner'] },
+  { to: '/history', label: 'Access history', icon: <IconActivity />, roles: ['platform_admin', 'admin', 'owner'] },
   {
     to: '/workspace/members',
     label: 'Members & Invites',
@@ -47,7 +47,7 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['owner'],
     requireCompany: true,
   },
-  { to: '/admin', label: 'Administration', icon: <IconShield />, roles: ['admin'] },
+  { to: '/admin', label: 'Platform Administration', icon: <IconShield />, roles: ['platform_admin'] },
   { to: '/profile', label: 'Profile & Settings', icon: <IconUser /> },
 ];
 
@@ -60,7 +60,7 @@ function pageTitle(pathname: string): string {
   if (pathname === '/workspace/create') return 'Create company workspace';
   if (pathname === '/workspace/members') return 'Members & invitations';
   if (pathname === '/workspace/settings') return 'Workspace settings';
-  if (pathname === '/admin') return 'Administration';
+  if (pathname === '/admin' || pathname === '/platform-admin') return 'Platform Administration';
   if (pathname === '/profile') return 'Profile & settings';
   return 'TrustVault';
 }

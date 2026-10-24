@@ -626,11 +626,11 @@ export class AuthService {
     isActive: boolean,
     context: RequestContext = {},
   ): Promise<void> {
-    if (adminActor.role !== 'admin') {
+    if (adminActor.role !== 'platform_admin') {
       throw new AppError({
         statusCode: 403,
         code: 'FORBIDDEN',
-        message: 'Administrator access is required.',
+        message: 'Platform administrator access is required.',
       });
     }
 
@@ -997,6 +997,9 @@ export class AuthService {
     }
     if (actor.role !== 'owner') {
       throw new AuthError(403, 'FORBIDDEN', 'Only workspace owners can change member roles.');
+    }
+    if (newRole === 'platform_admin') {
+      throw new AuthError(403, 'FORBIDDEN', 'Company owners cannot grant Platform Administrator privileges.');
     }
     if (actor.id === targetUserId) {
       throw new AuthError(422, 'INVALID_OPERATION', 'You cannot change your own role.');

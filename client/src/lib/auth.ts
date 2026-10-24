@@ -1,6 +1,6 @@
 import { API_PREFIX, request, type ApiResult } from './api';
 
-export type UserRole = 'owner' | 'admin' | 'editor' | 'viewer';
+export type UserRole = 'platform_admin' | 'owner' | 'admin' | 'editor' | 'viewer';
 
 export interface AuthUser {
   id: string;

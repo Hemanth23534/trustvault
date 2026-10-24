@@ -1111,6 +1111,42 @@ TrustVault enforces strict role boundaries:
   3. **Explicit `/dashboard` Route & Postbuild Fallback**: Mounted `<Route path="dashboard" element={<DashboardPage />} />` in `App.tsx` and pre-rendered `dist/dashboard/index.html` via `client/scripts/postbuild.js`.
   4. **Session Check Screen**: Handled `status === 'checking'` in `LoginPage.tsx` and `RegisterPage.tsx` to display a clean loading block, eliminating race conditions during session restoration.
 
+---
+
+## Platform Administrator Separation & Creator Governance
+
+### 1. Dedicated Platform Administrator (`platform_admin`) Role
+- **Strict Role Separation**: A new top-level `platform_admin` role was established in `users.role` (`ENUM('platform_admin', 'owner', 'admin', 'editor', 'viewer')`), cleanly distinguishing Platform Administrators (the system creators/operators) from company-level administrators (`role: 'admin'`).
+- **Cross-Company Visibility**: The Platform Administrator dashboard provides complete cross-company oversight:
+  - **Overview Counters**: Total registered employees across all companies, total company workspaces, active accounts, and disabled accounts.
+  - **Search & Filtering**: Search and filter employees across all companies by company, name, email, role, and account status (`active` vs `disabled`).
+  - **Company Workspace Directory**: View all registered company workspaces, their domains, employee counts, and active account counts (`GET /api/admin/companies`).
+  - **Company Employee Drill-down**: Inspect all employees belonging to any specific company (`GET /api/admin/companies/:id/employees`).
+  - **Account Status Management**: Disable or reactivate user accounts across any company with immediate session revocation (`PATCH /api/admin/users/:id/status`).
+
+### 2. Tenant Isolation & Privilege Escalation Defenses
+- **Company Owner & Admin Isolation**: Company owners (`role: 'owner'`) and company admins (`role: 'admin'`) are strictly confined to their company workspace (`actor.companyId`).
+- **Access Denial**: All Platform Administration routes (`/api/admin/*`) strictly enforce `requireRole('platform_admin')`. Any request from a company owner, company admin, editor, or viewer yields `403 Forbidden`.
+- **Promotion Prevention**: Public registration as a Platform Administrator is strictly forbidden. Furthermore, company owners and company admins cannot invite or promote anyone to `platform_admin` via workspace APIs (`PATCH /api/workspace/members/:id/role` and `POST /api/workspace/invitations` reject `platform_admin` with HTTP 422/403).
+- **Controlled Promotion CLI**: Initial promotion to Platform Administrator is restricted to controlled database migrations (`0010_platform_admin_role.sql`) or the secure server CLI tool:
+  ```bash
+  npm run promote:platform-admin <email>
+  ```
+- **Administrator Separation Invariant**: Platform Administrators govern accounts, companies, and audit ledgers, but have zero access to company document contents.
+
+### 3. Dedicated Platform Access Portal
+- **Dedicated Route**: Platform Administrators access governance tools through `/platform-admin/login`.
+- **Creator & Platform Banner**: Standard login (`/login`) includes a distinct "Creator & Platform Access" banner directing administrators to the portal.
+- **Unauthorized Handling**: If an authenticated company user visits `/platform-admin/login` or `/admin`, a clear, branded Access Restricted screen guides them back to their company workspace.
+
+### 4. Comprehensive Test Verification
+- **Automated Server Test Suite**: 16 test files, 270 tests PASS (`npm run test:server`).
+  - Includes dedicated suite `server/tests/platform-admin.test.ts` covering cross-company visibility, tenant isolation, access denial, promotion prevention, cross-tenant IDOR protection, and document lifecycle continuity.
+- **Automated Client Test Suite**: 10 test files, 60 tests PASS (`npm run test:client`).
+- **Type Safety**: 0 TypeScript errors across client and server (`npm run typecheck`).
+- **Production Build**: Clean production build with SPA fallbacks (`npm run build`).
+
+
 
 
 

@@ -19,7 +19,8 @@
     "migrate": "tsx src/scripts/migrate.ts up",
     "migrate:status": "tsx src/scripts/migrate.ts status",
     "migrate:dry": "tsx src/scripts/migrate.ts up --dry-run",
-    "seed": "tsx src/scripts/seed.ts"
+    "seed": "tsx src/scripts/seed.ts",
+    "promote:platform-admin": "tsx src/scripts/promote-platform-admin.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1153.0",

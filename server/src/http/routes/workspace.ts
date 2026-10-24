@@ -31,7 +31,7 @@ const acceptInviteSchema = z.object({
 });
 
 const updateRoleSchema = z.object({
-  role: z.enum(USER_ROLES),
+  role: z.enum(['admin', 'editor', 'viewer']),
 });
 
 export function createWorkspaceRouter(options: WorkspaceRouterOptions): Router {

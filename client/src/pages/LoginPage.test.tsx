@@ -99,7 +99,7 @@ describe('LoginPage redirect and session behavior', () => {
           id: 'usr-admin',
           email: 'admin@trustvault.local',
           displayName: 'Platform Admin',
-          role: 'admin',
+          role: 'platform_admin',
           isActive: true,
           companyId: null,
           companyName: null,

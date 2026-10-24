@@ -92,6 +92,10 @@ export interface ActivityEntry {
 }
 
 export interface AdminOverview {
+  totalEmployees: number;
+  totalCompanies: number;
+  activeAccounts: number;
+  disabledAccounts: number;
   users: number;
   activeUsers: number;
   documents: number;
@@ -106,9 +110,21 @@ export interface AdminUserEntry {
   id: string;
   email: string;
   displayName: string | null;
-  role: 'owner' | 'admin' | 'editor' | 'viewer';
+  companyId: string | null;
+  companyName: string | null;
+  role: 'platform_admin' | 'owner' | 'admin' | 'editor' | 'viewer';
   isActive: boolean;
   createdAt: Date;
   lastLoginAt: Date | null;
+  documentCount: number;
+}
+
+export interface AdminCompanyEntry {
+  id: string;
+  name: string;
+  domain: string | null;
+  createdAt: Date;
+  employeeCount: number;
+  activeCount: number;
   documentCount: number;
 }

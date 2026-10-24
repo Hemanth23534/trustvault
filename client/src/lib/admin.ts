@@ -1,6 +1,11 @@
 import { API_PREFIX, request, type ApiResult } from './api';
+import type { UserRole } from './auth';
 
 export interface AdminOverview {
+  totalEmployees: number;
+  totalCompanies: number;
+  activeAccounts: number;
+  disabledAccounts: number;
   users: number;
   activeUsers: number;
   documents: number;
@@ -15,11 +20,30 @@ export interface AdminUserEntry {
   id: string;
   email: string;
   displayName: string | null;
-  role: 'owner' | 'admin' | 'editor' | 'viewer';
+  companyId: string | null;
+  companyName: string | null;
+  role: UserRole;
   isActive: boolean;
   createdAt: string;
   lastLoginAt: string | null;
   documentCount: number;
+}
+
+export interface AdminCompanyEntry {
+  id: string;
+  name: string;
+  domain: string | null;
+  createdAt: string;
+  employeeCount: number;
+  activeCount: number;
+  documentCount: number;
+}
+
+export interface AdminUserFilters {
+  companyId?: string;
+  search?: string;
+  role?: string;
+  status?: 'active' | 'disabled';
 }
 
 export interface AdminAuditEntry {
@@ -78,8 +102,26 @@ export function fetchAdminOverview(): Promise<ApiResult<{ overview: AdminOvervie
   return request<{ overview: AdminOverview }>(`${API_PREFIX}/admin/overview`);
 }
 
-export function fetchAdminUsers(): Promise<ApiResult<{ users: AdminUserEntry[] }>> {
-  return request<{ users: AdminUserEntry[] }>(`${API_PREFIX}/admin/users`);
+export function fetchAdminUsers(
+  filters?: AdminUserFilters,
+): Promise<ApiResult<{ users: AdminUserEntry[] }>> {
+  const sp = new URLSearchParams();
+  if (filters?.companyId) sp.set('companyId', filters.companyId);
+  if (filters?.search) sp.set('search', filters.search);
+  if (filters?.role) sp.set('role', filters.role);
+  if (filters?.status) sp.set('status', filters.status);
+  const q = sp.toString();
+  return request<{ users: AdminUserEntry[] }>(`${API_PREFIX}/admin/users${q ? `?${q}` : ''}`);
+}
+
+export function fetchAdminCompanies(): Promise<ApiResult<{ companies: AdminCompanyEntry[] }>> {
+  return request<{ companies: AdminCompanyEntry[] }>(`${API_PREFIX}/admin/companies`);
+}
+
+export function fetchCompanyEmployees(
+  companyId: string,
+): Promise<ApiResult<{ employees: AdminUserEntry[] }>> {
+  return request<{ employees: AdminUserEntry[] }>(`${API_PREFIX}/admin/companies/${companyId}/employees`);
 }
 
 export function fetchAdminAuditLogs(

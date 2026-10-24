@@ -1,5 +1,6 @@
 import type {
   ActivityPage,
+  AdminUserFilters,
   DocumentActivityStore,
   DirectoryUser,
   PageRequest,
@@ -7,6 +8,7 @@ import type {
 import type { DocumentViewer } from '../../src/documents/document-store.js';
 import type {
   ActivityEntry,
+  AdminCompanyEntry,
   AdminOverview,
   AdminUserEntry,
   DocumentCategory,
@@ -250,10 +252,16 @@ export class InMemoryDocumentActivityStore implements DocumentActivityStore {
     const users = [...this.auth.users.values()];
     const documents = [...this.documents.documents.values()];
     const sessions = [...this.auth.sessions.values()];
+    const activeUsers = users.filter((user) => user.isActive).length;
+    const disabledUsers = users.filter((user) => !user.isActive).length;
 
     return {
+      totalEmployees: users.length,
+      totalCompanies: this.auth.companies.size,
+      activeAccounts: activeUsers,
+      disabledAccounts: disabledUsers,
       users: users.length,
-      activeUsers: users.filter((user) => user.isActive).length,
+      activeUsers,
       documents: documents.length,
       deletedDocuments: documents.filter((document) => document.deletedAt !== null).length,
       totalBytes: documents.reduce((sum, document) => sum + document.sizeBytes, 0),
@@ -263,18 +271,72 @@ export class InMemoryDocumentActivityStore implements DocumentActivityStore {
     };
   }
 
-  async adminUsers(): Promise<AdminUserEntry[]> {
-    return [...this.auth.users.values()].map((user) => ({
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      role: user.role,
-      isActive: user.isActive,
-      createdAt: new Date(0),
-      lastLoginAt: null,
-      documentCount: [...this.documents.documents.values()].filter(
-        (document) => document.ownerId === user.id && document.deletedAt === null,
-      ).length,
-    }));
+  async adminUsers(filters?: AdminUserFilters): Promise<AdminUserEntry[]> {
+    let users = [...this.auth.users.values()];
+
+    if (filters?.companyId) {
+      if (filters.companyId === 'none' || filters.companyId === 'personal') {
+        users = users.filter((u) => !u.companyId);
+      } else {
+        users = users.filter((u) => u.companyId === filters.companyId);
+      }
+    }
+
+    if (filters?.search && filters.search.trim()) {
+      const q = filters.search.trim().toLowerCase();
+      users = users.filter(
+        (u) =>
+          u.email.toLowerCase().includes(q) ||
+          (u.displayName && u.displayName.toLowerCase().includes(q)),
+      );
+    }
+
+    if (filters?.role && filters.role.trim()) {
+      users = users.filter((u) => u.role === filters.role);
+    }
+
+    if (filters?.status) {
+      if (filters.status === 'active') {
+        users = users.filter((u) => u.isActive);
+      } else if (filters.status === 'disabled') {
+        users = users.filter((u) => !u.isActive);
+      }
+    }
+
+    return users.map((user) => {
+      const company = user.companyId ? this.auth.companies.get(user.companyId) : null;
+      return {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        companyId: user.companyId ?? null,
+        companyName: company?.name ?? null,
+        role: user.role,
+        isActive: user.isActive,
+        createdAt: new Date(0),
+        lastLoginAt: null,
+        documentCount: [...this.documents.documents.values()].filter(
+          (document) => document.ownerId === user.id && document.deletedAt === null,
+        ).length,
+      };
+    });
+  }
+
+  async adminCompanies(): Promise<AdminCompanyEntry[]> {
+    return [...this.auth.companies.values()].map((company) => {
+      const employees = [...this.auth.users.values()].filter((u) => u.companyId === company.id);
+      const docs = [...this.documents.documents.values()].filter(
+        (d) => d.companyId === company.id && d.deletedAt === null,
+      );
+      return {
+        id: company.id,
+        name: company.name,
+        domain: company.domain ?? null,
+        createdAt: company.createdAt,
+        employeeCount: employees.length,
+        activeCount: employees.filter((u) => u.isActive).length,
+        documentCount: docs.length,
+      };
+    });
   }
 }

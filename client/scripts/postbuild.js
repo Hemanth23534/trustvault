@@ -25,6 +25,8 @@ const routes = [
   'documents',
   'history',
   'admin',
+  'platform-admin',
+  'platform-admin/login',
   'profile',
 ];
 

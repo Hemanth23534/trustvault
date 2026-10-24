@@ -407,23 +407,31 @@ describe('authorization (privilege escalation)', () => {
       .expect(403);
 
     expect(response.body.error.code).toBe('FORBIDDEN');
-    expect(response.body.error.details).toEqual({ requiredRoles: ['admin'] });
+    expect(response.body.error.details).toEqual({ requiredRoles: ['platform_admin'] });
   });
 
-  it('forbids an owner from reading admin audit logs', async () => {
+  it('forbids an owner and company admin from reading platform admin audit logs', async () => {
     const { app, store } = buildStack();
-    const owner = await addUser(store, { role: 'owner' });
-    const loginResponse = await login(app, owner.email).expect(200);
+    const owner = await addUser(store, { email: 'owner@trustvault.local', role: 'owner' });
+    const ownerLogin = await login(app, owner.email).expect(200);
 
     await request(app)
       .get('/api/admin/audit-logs')
-      .set('Cookie', sessionCookie(loginResponse))
+      .set('Cookie', sessionCookie(ownerLogin))
+      .expect(403);
+
+    const companyAdmin = await addUser(store, { email: 'company-admin@trustvault.local', role: 'admin' });
+    const adminLogin = await login(app, companyAdmin.email).expect(200);
+
+    await request(app)
+      .get('/api/admin/audit-logs')
+      .set('Cookie', sessionCookie(adminLogin))
       .expect(403);
   });
 
   it('allows an admin and returns the audit trail newest first', async () => {
     const { app, store } = buildStack();
-    const admin = await addUser(store, { email: 'admin@trustvault.local', role: 'admin' });
+    const admin = await addUser(store, { email: 'admin@trustvault.local', role: 'platform_admin' });
     const loginResponse = await login(app, admin.email).expect(200);
 
     const response = await request(app)
