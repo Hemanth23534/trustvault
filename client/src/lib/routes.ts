@@ -32,7 +32,8 @@ export function isPathAuthorized(
   if (
     normalized === '/login' ||
     normalized === '/register' ||
-    normalized === '/accept-invite'
+    normalized === '/accept-invite' ||
+    normalized === '/welcome'
   ) {
     return false;
   }

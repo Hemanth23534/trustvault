@@ -1,11 +1,28 @@
 import { renderToString } from 'react-dom/server';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthContextValue } from '../../context/AuthContext';
 import * as AuthContextModule from '../../context/AuthContext';
 import { RequireAuth, RequireRole } from './ProtectedRoute';
 
+const navigateSpy = vi.fn();
+
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return {
+    ...actual,
+    Navigate: (props: { to: string; replace?: boolean; state?: unknown }) => {
+      navigateSpy(props);
+      return <div data-testid="navigate-mock" data-to={props.to} />;
+    },
+  };
+});
+
 describe('ProtectedRoute components', () => {
+  beforeEach(() => {
+    navigateSpy.mockClear();
+    vi.restoreAllMocks();
+  });
   const mockAuthContext = (overrides: Partial<AuthContextValue>): AuthContextValue => ({
     status: 'authenticated',
     user: {
@@ -53,6 +70,81 @@ describe('ProtectedRoute components', () => {
       expect(html).toContain('Checking your session…');
       expect(html).not.toContain('Dashboard content');
     });
+
+    it('redirects anonymous user at root / to /welcome on first visit before session flag is set', () => {
+      vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+        mockAuthContext({ status: 'anonymous', user: null, session: null }),
+      );
+
+      const html = renderToString(
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route element={<RequireAuth />}>
+              <Route index element={<div>Dashboard content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>,
+      );
+
+      expect(navigateSpy).toHaveBeenCalledWith({ to: '/welcome', replace: true });
+      expect(html).toContain('data-to="/welcome"');
+      expect(html).not.toContain('Dashboard content');
+    });
+
+    it('redirects anonymous user to /login directly once welcome experience was seen', () => {
+      vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+        mockAuthContext({ status: 'anonymous', user: null, session: null }),
+      );
+
+      const originalSessionStorage = globalThis.sessionStorage;
+      globalThis.sessionStorage = {
+        getItem: vi.fn((key: string) => (key === 'trustvault_welcome_seen' ? '1' : null)),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
+        length: 1,
+      };
+
+      const html = renderToString(
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route element={<RequireAuth />}>
+              <Route index element={<div>Dashboard content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>,
+      );
+
+      expect(navigateSpy).toHaveBeenCalledWith({ to: '/login', replace: true, state: { from: '/' } });
+      expect(html).toContain('data-to="/login"');
+      expect(html).not.toContain('Dashboard content');
+
+      globalThis.sessionStorage = originalSessionStorage;
+    });
+
+    it('redirects anonymous user with deep link directly to /login with preserve state', () => {
+      vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+        mockAuthContext({ status: 'anonymous', user: null, session: null }),
+      );
+
+      const html = renderToString(
+        <MemoryRouter initialEntries={['/documents/doc-456']}>
+          <Routes>
+            <Route element={<RequireAuth />}>
+              <Route path="/documents/doc-456" element={<div>Document 456</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>,
+      );
+
+      expect(navigateSpy).toHaveBeenCalledWith({
+        to: '/login',
+        replace: true,
+        state: { from: '/documents/doc-456' },
+      });
+      expect(html).toContain('data-to="/login"');
+    });
   });
 
   describe('RequireRole', () => {
@@ -85,7 +177,10 @@ describe('ProtectedRoute components', () => {
 
       expect(html).not.toContain('Platform Admin Dashboard');
       expect(html).not.toContain('403');
-      expect(html).toBe('');
+      expect(html).toContain('data-to="/dashboard"');
+      expect(navigateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ to: '/dashboard', replace: true }),
+      );
     });
 
     it('redirects company owner away from platform admin route to dashboard without 403 error', () => {
@@ -117,7 +212,10 @@ describe('ProtectedRoute components', () => {
 
       expect(html).not.toContain('Platform Admin Dashboard');
       expect(html).not.toContain('403');
-      expect(html).toBe('');
+      expect(html).toContain('data-to="/dashboard"');
+      expect(navigateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ to: '/dashboard', replace: true }),
+      );
     });
 
     it('redirects normal employees (editor/viewer) away from platform admin route to dashboard', () => {
@@ -149,7 +247,10 @@ describe('ProtectedRoute components', () => {
 
       expect(html).not.toContain('Platform Admin Dashboard');
       expect(html).not.toContain('403');
-      expect(html).toBe('');
+      expect(html).toContain('data-to="/dashboard"');
+      expect(navigateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ to: '/dashboard', replace: true }),
+      );
     });
 
     it('allows platform_admin role to access platform admin route', () => {

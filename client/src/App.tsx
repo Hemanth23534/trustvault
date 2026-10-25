@@ -16,6 +16,7 @@ import { PlatformAdminLoginPage } from './pages/PlatformAdminLoginPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { RegisterPage } from './pages/RegisterPage';
 import { UploadPage } from './pages/UploadPage';
+import { WelcomePage } from './pages/WelcomePage';
 import { WorkspaceMembersPage } from './pages/WorkspaceMembersPage';
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage';
 
@@ -24,6 +25,7 @@ export function App(): JSX.Element {
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <AuthProvider>
         <Routes>
+          <Route path="/welcome" element={<WelcomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/platform-admin/login" element={<PlatformAdminLoginPage />} />
           <Route path="/register" element={<RegisterPage />} />

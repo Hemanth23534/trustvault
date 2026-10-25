@@ -286,6 +286,27 @@ export function LoginPage(): JSX.Element {
               Platform Login →
             </Link>
           </div>
+
+          <div
+            style={{
+              marginTop: '0.85rem',
+              textAlign: 'center',
+            }}
+          >
+            <Link
+              to="/welcome"
+              style={{
+                fontSize: '0.8rem',
+                color: 'var(--text-secondary)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                transition: 'color 0.15s ease',
+              }}
+            >
+              <span>✨ View 3D Welcome Experience</span>
+            </Link>
+          </div>
         </div>
 
         <p className="login-footnote">

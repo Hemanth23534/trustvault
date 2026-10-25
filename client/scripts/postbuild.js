@@ -14,6 +14,7 @@ if (!fs.existsSync(indexHtmlPath)) {
 }
 
 const routes = [
+  'welcome',
   'dashboard',
   'register',
   'login',

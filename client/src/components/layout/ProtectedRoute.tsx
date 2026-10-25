@@ -20,6 +20,16 @@ export function RequireAuth(): JSX.Element {
   }
 
   if (status === 'anonymous') {
+    // If arriving at the site root for the first time in this browser session,
+    // display the cinematic 3D welcome experience before directing to login.
+    const hasSeenWelcome =
+      typeof sessionStorage !== 'undefined'
+        ? Boolean(sessionStorage.getItem('trustvault_welcome_seen'))
+        : false;
+
+    if (location.pathname === '/' && !hasSeenWelcome) {
+      return <Navigate to="/welcome" replace />;
+    }
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
